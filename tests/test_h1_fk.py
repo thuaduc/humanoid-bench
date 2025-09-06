@@ -18,9 +18,9 @@ def _compute_avg_rmse(env_id: str = "h1-maze-v0", fk_func: callable = h1_fk.fk_j
     env = gym.make(env_id, render_mode=None)
     try:
         mse = 0.0
-        for i in range(10):
-            env.reset(seed=1)
-            
+        for i in range(100):
+            env.reset(seed=i)
+
             xanchor = env.unwrapped.named.data.xanchor
             batch_xanchor = torch.from_numpy(np.array(xanchor)).unsqueeze(0).float()  # Shape: (1, 20, 3)
 
@@ -32,7 +32,7 @@ def _compute_avg_rmse(env_id: str = "h1-maze-v0", fk_func: callable = h1_fk.fk_j
 
             # Calculate MSE between FK joint positions and MuJoCo xanchor
             mse += torch.sqrt(torch.mean((joint_positions - batch_xanchor) ** 2)).item()
-        return mse / 10
+        return mse / 100
     finally:
         try:
             env.close()

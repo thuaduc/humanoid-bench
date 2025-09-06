@@ -5,6 +5,7 @@ from fast_td3.skeleton_builder import build_edge_index_and_attr
 from fast_td3.robots.h1 import h1_fk
 from fast_td3.robots.h1_jax import h1_jax_fk
 
+
 class E_GCL(nn.Module):
     """
     E(n) Equivariant Convolutional Layer
@@ -287,6 +288,7 @@ def unsorted_segment_mean(data, segment_ids, num_segments):
     result.scatter_add_(0, segment_ids, data)
     count.scatter_add_(0, segment_ids, torch.ones_like(data))
     return result / count.clamp(min=1)
+
 
 def get_edges(n_nodes):
     rows, cols = [], []

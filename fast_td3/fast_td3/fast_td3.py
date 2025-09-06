@@ -48,7 +48,7 @@ class DistributionalQNetwork(nn.Module):
 
         target_z = (
             rewards.unsqueeze(1)
-            + bootstrap.unsqueeze(1) * discount * q_support
+            + bootstrap.unsqueeze(1) * discount.unsqueeze(1) * q_support
         )
         target_z = target_z.clamp(self.v_min, self.v_max)
         b = (target_z - self.v_min) / delta_z
@@ -114,6 +114,7 @@ class Critic(nn.Module):
         self.register_buffer(
             "q_support", torch.linspace(v_min, v_max, num_atoms, device=device)
         )
+        self.device = device
 
     def forward(self, obs: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
         return self.qnet1(obs, actions), self.qnet2(obs, actions)
@@ -150,7 +151,3 @@ class Critic(nn.Module):
     def get_value(self, probs: torch.Tensor) -> torch.Tensor:
         """Calculate value from logits using support"""
         return torch.sum(probs * self.q_support, dim=1)
-
-
-
-

@@ -39,16 +39,16 @@ class Actor(nn.Module):
         self.register_buffer("std_min", torch.as_tensor(std_min, device=device))
         self.register_buffer("std_max", torch.as_tensor(std_max, device=device))
         self.n_envs = num_envs
+        self.device = device
 
-    def forward(self, obs: torch.Tensor, xpos: torch.Tensor = None) -> torch.Tensor:
-
+    def forward(self, obs: torch.Tensor) -> torch.Tensor:
         x = obs
         x = self.net(x)
         action = self.fc_mu(x)
         return action
 
     def explore(
-        self, obs: torch.Tensor, xpos: torch.Tensor = None, dones: torch.Tensor = None, deterministic: bool = False
+        self, obs: torch.Tensor, dones: torch.Tensor = None, deterministic: bool = False
     ) -> torch.Tensor:
         # If dones is provided, resample noise for environments that are done
         if dones is not None and dones.sum() > 0:
@@ -61,7 +61,9 @@ class Actor(nn.Module):
 
             # Update only the noise scales for environments that are done
             dones_view = dones.view(-1, 1) > 0
-            self.noise_scales = torch.where(dones_view, new_scales, self.noise_scales)
+            self.noise_scales.copy_(
+                torch.where(dones_view, new_scales, self.noise_scales)
+            )
 
         act = self(obs)
         if deterministic:
@@ -69,4 +71,3 @@ class Actor(nn.Module):
 
         noise = torch.randn_like(act) * self.noise_scales
         return act + noise
-
