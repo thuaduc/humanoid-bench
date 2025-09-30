@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import gymnasium as gym
 
 import humanoid_bench
@@ -8,10 +7,12 @@ from fast_td3.environments.subproc_vec_env import SubprocVecEnv
 import numpy as np
 import torch
 from loguru import logger as log
+import os
 
 # Disable all logging below CRITICAL level
 log.remove()
 log.add(lambda msg: False, level="CRITICAL")
+
 
 
 def make_env(env_name, rank, render_mode=None, seed=0):
@@ -21,6 +22,11 @@ def make_env(env_name, rank, render_mode=None, seed=0):
     :param rank: (int) index of the subprocess
     :param seed: (int) the inital seed for RNG
     """
+    
+    # Set environment variables to force headless rendering for training environments
+    if render_mode is None:
+        os.environ['MUJOCO_GL'] = 'glfw'
+        os.environ['PYOPENGL_PLATFORM'] = 'glfw'
 
     if env_name in [
         "h1hand-push-v0",
@@ -37,8 +43,11 @@ def make_env(env_name, rank, render_mode=None, seed=0):
         max_episode_steps = 1000
 
     def _init():
-        import humanoid_bench
-
+        # Set the environment variables again inside the subprocess
+        if render_mode is None:
+            os.environ['MUJOCO_GL'] = 'glfw'
+            os.environ['PYOPENGL_PLATFORM'] = 'glfw'
+            
         env = gym.make(env_name, render_mode=render_mode)
         env = TimeLimit(env, max_episode_steps=max_episode_steps)
         env.unwrapped.seed(seed + rank)

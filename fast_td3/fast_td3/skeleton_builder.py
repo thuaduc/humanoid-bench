@@ -1,14 +1,14 @@
 import torch
 
-from fast_td3.robots.h1 import H1
-from fast_td3.robots.g1 import G1
+# from fast_td3.robots.h1 import H1
+# from fast_td3.robots.g1 import G1
 
 
 def build_edge_index_and_attr(robot_name, batch_size, device):
     if robot_name == "h1":
-        robot = H1
+        robot = None #H1
     else:
-        robot = G1
+        robot = None #G1
 
     edge_list = robot.edge_list
     src, dst = zip(*edge_list)  # Unpack edge list into two tuples

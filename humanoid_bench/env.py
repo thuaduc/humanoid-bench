@@ -1,6 +1,8 @@
 import os
 
-import numpy as np
+import numpy as np  
+
+os.environ["MUJOCO_GL"] = "glfw"
 import mujoco
 import gymnasium as gym
 from gymnasium.envs import register

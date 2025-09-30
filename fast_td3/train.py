@@ -726,7 +726,8 @@ def main():
         logs_dict["actor_loss"] = actor_loss.detach()
         return logs_dict
 
-    if args.compile:
+    # Disable torch.compile on MPS due to known issues with dynamic shapes
+    if args.compile and device.type != "mps":
         mode = None
         update_main = torch.compile(update_main, mode=mode)
         update_pol = torch.compile(update_pol, mode=mode)
@@ -734,6 +735,11 @@ def main():
         normalize_obs = torch.compile(normalize_obs, mode=mode)
         normalize_critic_obs = torch.compile(normalize_critic_obs, mode=mode)
         normalize_xpos = torch.compile(normalize_xpos, mode=mode)
+        print(f"torch.compile enabled for device: {device}")
+    elif args.compile and device.type == "mps":
+        print(f"torch.compile disabled on MPS device due to known issues with dynamic shapes")
+    else:
+        print(f"torch.compile disabled")
 
     def frames_to_video_html(frames, fps=30):
         """
@@ -936,33 +942,31 @@ def main():
                         logs["eval_avg_return"] = eval_avg_return
                         logs["eval_avg_length"] = eval_avg_length
 
-                    # RENDERING: Generate and display videos of current policy
-                    if (
-                        args.render_interval > 0
-                        and global_step % args.render_interval == 0
-                    ):
-                        renders = render_with_rollout()
-                        print_logs = {
-                            k: v.item() if isinstance(v, torch.Tensor) else v
-                            for k, v in logs.items()
-                        }
-                        for k, v in print_logs.items():
-                            print(f"{k}: {v:.4f}")
-                        # Display video in notebook
-                        update_video_display(renders, fps=30)
-                        if use_wandb:
-                            wandb.log(
-                                {
-                                    "render_video": wandb.Video(
-                                        np.array(renders).transpose(
-                                            0, 3, 1, 2
-                                        ),  # Convert to (T, C, H, W) format
-                                        fps=30,
-                                        format="gif",
-                                    )
-                                },
-                                step=global_step,
-                            )
+                    #RENDERING: Generate and display videos of current policy
+                    # if (
+                    #     args.render_interval > 0
+                    #     and global_step % args.render_interval == 0
+                    # ):
+                    #     renders = render_with_rollout()
+                    #     print_logs = {
+                    #         k: v.item() if isinstance(v, torch.Tensor) else v
+                    #         for k, v in logs.items()
+                    #     }
+                    #     for k, v in print_logs.items():
+                    #         print(f"{k}: {v:.4f}")
+                    #     if use_wandb:
+                    #         wandb.log(
+                    #             {
+                    #                 "render_video": wandb.Video(
+                    #                     np.array(renders).transpose(
+                    #                         0, 3, 1, 2
+                    #                     ),  # Convert to (T, C, H, W) format
+                    #                     fps=30,
+                    #                     format="gif",
+                    #                 )
+                    #             },
+                    #             step=global_step,
+                    #         )
 
                 if use_wandb:
                     wandb.log(
