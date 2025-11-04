@@ -3,16 +3,18 @@ import cv2
 import numpy as np
 from moviepy.editor import ImageSequenceClip
 
+
 def plt_fig_to_rgb(fig):
-    """ Convert a matplotlib figure to RGB image """
+    """Convert a matplotlib figure to RGB image"""
     fig.canvas.draw()
     w, h = fig.canvas.get_width_height()
     buf = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8)
     buf.shape = (h, w, 3)
     return buf
 
-def cv_render(img, name='GoalEnvExt', scale=5):
-    '''Take an image in ndarray format and show it with opencv. '''
+
+def cv_render(img, name="GoalEnvExt", scale=5):
+    """Take an image in ndarray format and show it with opencv."""
     if len(img.shape) == 2:
         img = img[:, :, None]
     if img.shape[2] == 1:  # Depth. Normalize.
@@ -26,18 +28,19 @@ def cv_render(img, name='GoalEnvExt', scale=5):
     cv2.imshow(name, new_img)
     cv2.waitKey(20)
 
+
 def save_rgb(path, img):
-    if np.max(img) <= 1.:
-        img = img * 255.
+    if np.max(img) <= 1.0:
+        img = img * 255.0
     img = img.astype(np.float32)
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
     cv2.imwrite(path, img)
 
 
 def make_grid(array, ncol=5, padding=0, pad_value=120):
-    """ numpy version of the make_grid function in torch. Dimension of array: NHWC """
-    if np.max(array) < 2.:
-        array = array * 255.
+    """numpy version of the make_grid function in torch. Dimension of array: NHWC"""
+    if np.max(array) < 2.0:
+        array = array * 255.0
     if len(array.shape) == 3:  # In case there is only one channel
         array = np.expand_dims(array, 3)
     N, H, W, C = array.shape
@@ -49,12 +52,20 @@ def make_grid(array, ncol=5, padding=0, pad_value=120):
     idx = 0
     grid_img = None
     for i in range(nrow):
-        row = np.pad(array[idx], [[padding if i == 0 else 0, padding], [padding, padding], [0, 0]],
-                     constant_values=pad_value, mode='constant')
+        row = np.pad(
+            array[idx],
+            [[padding if i == 0 else 0, padding], [padding, padding], [0, 0]],
+            constant_values=pad_value,
+            mode="constant",
+        )
         for j in range(1, ncol):
             idx += 1
-            cur_img = np.pad(array[idx], [[padding if i == 0 else 0, padding], [0, padding], [0, 0]],
-                             constant_values=pad_value, mode='constant')
+            cur_img = np.pad(
+                array[idx],
+                [[padding if i == 0 else 0, padding], [0, padding], [0, 0]],
+                constant_values=pad_value,
+                mode="constant",
+            )
             row = np.hstack([row, cur_img])
         idx += 1
         if i == 0:
@@ -86,11 +97,11 @@ def save_numpy_as_gif(array, filename, fps=20, scale=1.0):
         how much to rescale each image by (default: 1.0)
     """
 
-    if np.max(array) <= 2.:
-        array *= 255.
+    if np.max(array) <= 2.0:
+        array *= 255.0
     # ensure that the file has the .gif extension
     fname, _ = os.path.splitext(filename)
-    filename = fname + '.gif'
+    filename = fname + ".gif"
 
     # copy into the color dimension if the images are black and white
     if array.ndim == 3:
@@ -102,7 +113,7 @@ def save_numpy_as_gif(array, filename, fps=20, scale=1.0):
     return clip
 
 
-def save_numpy_as_video(array, filename, fps=20, extension='mp4'):
+def save_numpy_as_video(array, filename, fps=20, extension="mp4"):
     """Creates a gif given a stack of images using moviepy
     Notes
     -----
@@ -112,12 +123,12 @@ def save_numpy_as_video(array, filename, fps=20, extension='mp4'):
     """
     import cv2
 
-    if np.max(array) <= 2.:
-        array *= 255.
+    if np.max(array) <= 2.0:
+        array *= 255.0
     array = array.astype(np.uint8)
     # ensure that the file has the .mp4 extension
     fname, _ = os.path.splitext(filename)
-    filename = fname + f'.{extension}'
+    filename = fname + f".{extension}"
 
     # copy into the color dimension if the images are black and white
     if array.ndim == 3:
@@ -146,8 +157,9 @@ def save_numpy_as_video(array, filename, fps=20, extension='mp4'):
     clip.write_videofile(filename, fps=fps, logger=None)
     return clip
 
+
 def save_numpy_as_img(img, filename):
-    img = img * 255.
+    img = img * 255.0
     img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
     cv2.imwrite(filename, img)
 
@@ -166,12 +178,14 @@ def save_numpy_to_gif_matplotlib(array, filename, interval=50):
 
     ani = animation.FuncAnimation(fig, img_show, len(array), interval=interval)
 
-    ani.save('{}.mp4'.format(filename))
+    ani.save("{}.mp4".format(filename))
 
     import ffmpy
+
     ff = ffmpy.FFmpeg(
         inputs={"{}.mp4".format(filename): None},
-        outputs={"{}.gif".format(filename): None})
+        outputs={"{}.gif".format(filename): None},
+    )
 
     ff.run()
     # plt.show()
@@ -179,6 +193,7 @@ def save_numpy_to_gif_matplotlib(array, filename, interval=50):
 
 def visualize_traj_opencv(imgs):
     import cv2 as cv
+
     for i in range(len(imgs)):
-        cv.imshow('x', imgs[i])
+        cv.imshow("x", imgs[i])
         cv.waitKey(20)
