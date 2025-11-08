@@ -33,7 +33,7 @@ def test_data(device):
         device=device,
         batch_size=8192,
         n_layers=4,
-        env_name="h1-push-v0", 
+        env_name="h1-run-v0", 
         robot="h1",
         act_fn=nn.ReLU()
     )

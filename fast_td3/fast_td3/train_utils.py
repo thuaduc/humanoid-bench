@@ -229,7 +229,6 @@ def create_actor(
         Actor,
         ActorEGNN,
         ActorEGNN2,
-        ActorEGNN_FiLM,
     )
     
     if actor_type == "egnn":
@@ -263,18 +262,7 @@ def create_actor(
             init_scale=init_scale,
             hidden_dim=actor_hidden_dim,
         )
-    elif actor_type == "egnn_film":
-        return ActorEGNN_FiLM(
-            n_obs=n_obs,
-            n_act=n_act,
-            num_envs=num_envs,
-            batch_size=batch_size,
-            device=device,
-            init_scale=init_scale,
-            env_name=env_name,
-            **model_kwargs,
-        )
     else:
         raise ValueError(
-            f"Unsupported actor type: {actor_type}. Supported types are: egnn, mlp, mpnn, hepi, aegnn, ponita, hegnn, egnn_film"
+            f"Unsupported actor type: {actor_type}. Supported types are: egnn, mlp."
         )

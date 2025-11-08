@@ -6,11 +6,11 @@ from typing import Callable
 
 sys.path.append(".")
 
-from fast_td3.actors.gnn.egnn import (
+from fast_td3.actors.gnn.egcl import (
     unsorted_segment_mean as unsorted_segment_mean_new,
     unsorted_segment_sum as unsorted_segment_sum_new,
-    EGNN
 )
+from fast_td3.actors.actor_egnn import EGNN
 
 from torch import nn
 
@@ -64,7 +64,7 @@ def test_data(device):
         device=device,
         batch_size=8192,
         n_layers=4,
-        env_name="h1-push-v0", 
+        env_name="h1-run-v0", 
         robot="h1",
         act_fn=nn.ReLU()
     )

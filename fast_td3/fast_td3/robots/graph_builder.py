@@ -70,31 +70,25 @@ class GraphBuilder:
     # obs = qpos + qvel
     # structure of obs: /home/duckoid/Downloads/humanoid-bench/fast_td3/src/humanoid-bench/humanoid_bench/tasks.py
     @torch.compile(dynamic=True)
-    def generate_input(self, obs: torch.tensor, xanchor: torch.tensor):
-        """Generate input with root information as global context."""
+    def generate_input_base(self, obs: torch.tensor, xanchor: torch.tensor):
+        """Generate input objects for environments without objects."""
         assert obs.shape[1] == 51, f"obs shape: {obs.shape}"
         assert xanchor.shape[1] == 20, f"xanchor shape: {xanchor.shape}"
-
-        # Extract root features (13 values)
-        root_features = torch.cat(
-            [obs[:, 0:7], obs[:, 26:32]],  # root pos (3) + quat (4) = 7  # root vel (6)
-            dim=1,
-        )  # [batch, 13]
 
         # Extract joint features
         joint_pos = obs[:, 7:26].reshape(-1, 1)  # [batch*19, 1]
         joint_vel = obs[:, 32:].reshape(-1, 1)  # [batch*19, 1]
 
-        # Concatenate: each joint gets [pos, vel, root_context]
+        # Concatenate: each joint gets [pos, vel]
         h = torch.cat(
-            [joint_pos, joint_vel],  # 1 value  # 1 value  # 13 values
+            [joint_pos, joint_vel],
             dim=1,
         )  # [batch*19, 2]
 
         # Positions remain relative to root (unchanged)
         x = (xanchor[:, 1:] - xanchor[:, [0]]).reshape(-1, 3)  # [batch*19, 3]
 
-        return h, x, root_features
+        return h, x
 
     # h = qpos concat qvel
     @torch.compile(dynamic=True)
