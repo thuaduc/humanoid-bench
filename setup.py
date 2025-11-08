@@ -31,5 +31,5 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     python_requires=">3.7",
-    install_requires=core_requirements,
+    # install_requires=core_requirements,
 )

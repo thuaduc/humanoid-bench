@@ -83,9 +83,8 @@ class E_GCL(nn.Module):
         coord_mlp.append(nn.LazyLinear(hidden_nf))
         coord_mlp.append(act_fn)
         coord_mlp.append(layer)
-
-        # if self.tanh:
-        #     coord_mlp.append(nn.Tanh())
+        if self.tanh:
+            coord_mlp.append(nn.Tanh())
         self.coord_mlp = nn.Sequential(*coord_mlp)
 
         # if self.attention:

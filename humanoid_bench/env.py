@@ -8,8 +8,8 @@ from gymnasium.envs.mujoco import MujocoEnv
 from gymnasium.spaces import Box
 import humanoid_bench.dmc_deps.dmc_index as index
 import collections
-NamedIndexStructs = collections.namedtuple(
-    'NamedIndexStructs', ['model', 'data'])
+
+NamedIndexStructs = collections.namedtuple("NamedIndexStructs", ["model", "data"])
 
 from dm_control.utils import rewards
 
@@ -63,7 +63,14 @@ DEFAULT_CAMERA_CONFIG = {
 }
 DEFAULT_RANDOMNESS = 0.01
 
-ROBOTS = {"h1": H1, "h1hand": H1Hand, "h1simplehand": H1SimpleHand, "h1strong": H1Strong, "h1touch": H1Touch, "g1": G1}
+ROBOTS = {
+    "h1": H1,
+    "h1hand": H1Hand,
+    "h1simplehand": H1SimpleHand,
+    "h1strong": H1Strong,
+    "h1touch": H1Touch,
+    "g1": G1,
+}
 TASKS = {
     "stand": Stand,
     "walk": Walk,
@@ -126,7 +133,7 @@ class HumanoidEnv(MujocoEnv, gym.utils.EzPickle):
             model_path = kwargs["model_path"]
         else:
             model_path = f"envs/{robot}_{control}_{task}.xml"
-        
+
         model_path = os.path.join(asset_path, model_path)
 
         self.robot = ROBOTS[robot](self)
@@ -191,7 +198,6 @@ class HumanoidEnv(MujocoEnv, gym.utils.EzPickle):
                 self.task = DoubleReachRelativeWrapper(self.task, **kwargs)
             else:
                 raise ValueError(f"Unknown policy_type: {kwargs['policy_type']}")
-        
 
         if self.obs_wrapper:
             # Note that observation wrapper is not compatible with hierarchical policy
@@ -206,8 +212,10 @@ class HumanoidEnv(MujocoEnv, gym.utils.EzPickle):
         self.randomness = randomness
         if isinstance(self.task, (BookshelfHard, BookshelfSimple, Kitchen, Cube)):
             self.randomness = 0
-            print("No randomness in this env. This is the default behavior for (BookshelfHard, BookshelfSimple, Kitchen, Cube)")
-        
+            print(
+                "No randomness in this env. This is the default behavior for (BookshelfHard, BookshelfSimple, Kitchen, Cube)"
+            )
+
         # Set up named indexing.
         data = MjDataWrapper(self.data)
         model = MjModelWrapper(self.model)
@@ -228,18 +236,57 @@ class HumanoidEnv(MujocoEnv, gym.utils.EzPickle):
 
     def reset_model(self):
         mujoco.mj_resetDataKeyframe(self.model, self.data, self.keyframe)
-        mujoco.mj_forward(self.model, self.data)
 
-        # Add randomness
+        # Copy initial state
         init_qpos = self.data.qpos.copy()
         init_qvel = self.data.qvel.copy()
-        r = self.randomness
-        self.set_state(
-            init_qpos + self.np_random.uniform(-r, r, size=self.model.nq), init_qvel
-        )
+
+        def euler_to_quat(angles):
+            cr, cp, cy = (
+                np.cos(angles[0] / 2),
+                np.cos(angles[1] / 2),
+                np.cos(angles[2] / 2),
+            )
+            sr, sp, sy = (
+                np.sin(angles[0] / 2),
+                np.sin(angles[1] / 2),
+                np.sin(angles[2] / 2),
+            )
+            return np.array(
+                [
+                    cr * cp * cy + sr * sp * sy,
+                    sr * cp * cy - cr * sp * sy,
+                    cr * sp * cy + sr * cp * sy,
+                    cr * cp * sy - sr * sp * cy,
+                ]
+            )
+
+        rotation_angle = 1.5708 * 2
+        new_qpos = init_qpos.copy()
+        new_qpos[3:7] = euler_to_quat(np.array([0, 0, rotation_angle]))
+        new_qpos[0] += 1000
+        new_qpos[1] += 1000
+
+        # Apply new state
+        self.set_state(new_qpos, init_qvel)
 
         # Task-specific reset and return observations
         return self.task.reset_model()
+
+    # def reset_model(self):
+    #     mujoco.mj_resetDataKeyframe(self.model, self.data, self.keyframe)
+    #     mujoco.mj_forward(self.model, self.data)
+
+    #     # Add randomness
+    #     init_qpos = self.data.qpos.copy()
+    #     init_qvel = self.data.qvel.copy()
+    #     r = self.randomness
+    #     self.set_state(
+    #         init_qpos + self.np_random.uniform(-r, r, size=self.model.nq), init_qvel
+    #     )
+
+    #     # Task-specific reset and return observations
+    #     return self.task.reset_model()
 
     def seed(self, seed=None):
         np.random.seed(seed)

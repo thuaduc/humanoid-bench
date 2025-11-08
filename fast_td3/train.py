@@ -209,15 +209,12 @@ def main():
         critic_obs_normalizer = EmpiricalNormalization(
             shape=n_critic_obs, device=device
         )
-        xanchor_normalizer = EmpiricalNormalization(shape=(n_xanchor, 3), device=device)
     else:
         obs_normalizer = nn.Identity()
         critic_obs_normalizer = nn.Identity()
-        xanchor_normalizer = nn.Identity()
 
     normalize_obs = obs_normalizer.forward
     normalize_critic_obs = critic_obs_normalizer.forward
-    normalize_xanchor = xanchor_normalizer.forward
 
     actor = create_actor(
         actor_type=terminal_args["actor"],
@@ -354,7 +351,6 @@ def main():
                 device_type=amp_device_type, dtype=amp_dtype, enabled=amp_enabled
             ):
                 obs = normalize_obs(obs)
-                xanchor = normalize_xanchor(xanchor)
                 actions = actor(obs, xanchor)
 
             next_obs, rewards, dones, _, next_xanchor = eval_envs.step(actions.float())
@@ -396,7 +392,6 @@ def main():
                 device_type=amp_device_type, dtype=amp_dtype, enabled=amp_enabled
             ):
                 obs = normalize_obs(obs)
-                xanchor = normalize_xanchor(xanchor)
                 actions = actor(obs, xanchor)
             next_obs, _, done, _, next_xanchor = render_env.step(actions.float())
             if env_type == "mujoco_playground":
@@ -635,7 +630,6 @@ def main():
         policy = torch.compile(policy, mode=mode)
         normalize_obs = torch.compile(normalize_obs, mode=mode)
         normalize_critic_obs = torch.compile(normalize_critic_obs, mode=mode)
-        normalize_xanchor = torch.compile(normalize_xanchor, mode=mode)
 
     def frames_to_video_html(frames, fps=30):
         """
@@ -705,8 +699,7 @@ def main():
                 obs, xanchor = obs
 
             norm_obs = normalize_obs(obs)
-            norm_xanchor = normalize_xanchor(xanchor)
-            actions = policy(obs=norm_obs, xanchor=norm_xanchor, dones=dones)
+            actions = policy(obs=norm_obs, xanchor=xanchor, dones=dones)
 
         # ENVIRONMENT INTERACTION PHASE
         # Take actions in the environment and collect transition data
@@ -778,8 +771,7 @@ def main():
                 data["next"]["observations"] = normalize_obs(
                     data["next"]["observations"]
                 )
-                data["xanchors"] = normalize_xanchor(data["xanchors"])
-                data["next"]["xanchors"] = normalize_xanchor(data["next"]["xanchors"])
+                
                 if envs.asymmetric_obs:
                     data["critic_observations"] = normalize_critic_obs(
                         data["critic_observations"]
