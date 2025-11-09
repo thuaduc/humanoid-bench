@@ -79,7 +79,7 @@ class EGNN(nn.Module):
         )
 
         self.joint_embedding_in = nn.Sequential(nn.LazyLinear(self.hidden_nf), act_fn)
-        self.joint_embedding_out = nn.Sequential(nn.LazyLinear(1), act_fn)
+        self.joint_embedding_out = nn.Sequential(nn.LazyLinear(1), nn.Tanh())
 
         self.to(self.device)
 
@@ -92,7 +92,8 @@ class EGNN(nn.Module):
         h_joints = self.joint_embedding_in(h_joints)
         for layer in self.layers:
             h_joints, x_joint, _ = layer(h=h_joints, edge_index=edges, coord=x_joint)
-        actions = torch.tanh(self.joint_embedding_out(h_joints))
+        
+        actions = self.joint_embedding_out(h_joints)
 
         return actions.view(current_batch_size, self.num_joints)
 
