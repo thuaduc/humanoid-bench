@@ -226,17 +226,54 @@ class HumanoidEnv(MujocoEnv, gym.utils.EzPickle):
     def step(self, action):
         return self.task.step(action)
 
+    def reset(self, *, seed=None, options=None):
+        # Handle options for randomization
+        self._random_position = options.get("random_position", False) if options else False
+        self._random_orientation = options.get("random_orientation", False) if options else False
+        return super().reset(seed=seed, options=options)
+
     def reset_model(self):
         mujoco.mj_resetDataKeyframe(self.model, self.data, self.keyframe)
         mujoco.mj_forward(self.model, self.data)
+
+        def euler_to_quat(angles):
+            cr, cp, cy = (
+                np.cos(angles[0] / 2),
+                np.cos(angles[1] / 2),
+                np.cos(angles[2] / 2),
+            )
+            sr, sp, sy = (
+                np.sin(angles[0] / 2),
+                np.sin(angles[1] / 2),
+                np.sin(angles[2] / 2),
+            )
+            return np.array(
+                [
+                    cr * cp * cy + sr * sp * sy,
+                    sr * cp * cy - cr * sp * sy,
+                    cr * sp * cy + sr * cp * sy,
+                    cr * cp * sy - sr * sp * cy,
+                ]
+            )
 
         # Add randomness
         init_qpos = self.data.qpos.copy()
         init_qvel = self.data.qvel.copy()
         r = self.randomness
-        self.set_state(
-            init_qpos + self.np_random.uniform(-r, r, size=self.model.nq), init_qvel
-        )
+        if not (self._random_position or self._random_orientation):
+            # Default randomness to all qpos
+            # init_qpos += self.np_random.uniform(-r, r, size=self.model.nq)
+            init_qpos = init_qpos
+        else:
+            # reset robot to random position
+            if self._random_position:
+                # init_qpos[:2] += self.np_random.uniform(-10, 10, size=2)
+                init_qpos[:2] = [10, 10]
+
+            # rotate robot randomly
+            if self._random_orientation:
+                init_qpos[3:7] = euler_to_quat(np.array([0.0, 0.0, self.np_random.uniform(-3.14, 3.14)]))
+        self.set_state(init_qpos, init_qvel)
 
         # Task-specific reset and return observations
         return self.task.reset_model()

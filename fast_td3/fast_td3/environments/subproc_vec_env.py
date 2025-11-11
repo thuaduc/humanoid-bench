@@ -143,7 +143,9 @@ class SubprocVecEnv(VecEnv):
         obs, rews, dones, infos, self.reset_infos, self.xanchor = zip(*results)  # type: ignore[assignment]
         return _stack_obs(obs, self.observation_space), np.stack(rews), np.stack(dones), infos, np.stack(self.xanchor)  # type: ignore[return-value]
 
-    def reset(self) -> Union[np.ndarray, dict[str, np.ndarray], tuple[np.ndarray, ...], np.ndarray]:
+    def reset(self, options=None) -> Union[np.ndarray, dict[str, np.ndarray], tuple[np.ndarray, ...], np.ndarray]:
+        if options is not None:
+            self._options = [options] * self.num_envs
         for env_idx, remote in enumerate(self.remotes):
             remote.send(("reset", (self._seeds[env_idx], self._options[env_idx])))
         results = [remote.recv() for remote in self.remotes]
