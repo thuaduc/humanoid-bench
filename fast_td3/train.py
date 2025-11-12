@@ -247,8 +247,11 @@ def main():
     # For actors with LazyLinear layers (EGNN with mixed types), we need to initialize them before copying parameters
     if terminal_args["actor"] in ["egnn", "egnn2", "egnn_film"]:
         init_obs, init_xanchor = envs.reset()
+        init_obs = init_obs.to(device)
+        init_xanchor = init_xanchor.to(device)
         with torch.no_grad():
-            _ = actor(init_obs.to(device), init_xanchor.to(device))
+            _ = actor(init_obs, init_xanchor)
+            _ = actor_detach(init_obs, init_xanchor)
 
     print(f"Actor num of parameters: {sum(p.numel() for p in actor.parameters())}")
     for name in actor.named_parameters():
