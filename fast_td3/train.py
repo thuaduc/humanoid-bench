@@ -288,7 +288,7 @@ def main():
         critic_obs_normalizer = EmpiricalNormalization(
             shape=n_critic_obs, device=device
         )
-        xpos_normalizer = EmpiricalNormalization(shape=(20, 3), device=device)
+        xpos_normalizer = nn.Identity()
     else:
         obs_normalizer = nn.Identity()
         critic_obs_normalizer = nn.Identity()
@@ -910,6 +910,7 @@ def main():
                         "buffer_rewards": logs_dict["buffer_rewards"].mean(),
                         "env_rewards": rewards.mean(),
                     }
+
 
                     # EVALUATION: Test current policy performance without exploration
                     if args.eval_interval > 0 and global_step % args.eval_interval == 0:
