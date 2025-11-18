@@ -1,7 +1,31 @@
 from torch import nn
 import torch
 
-from fast_td3.skeleton_builder import build_edge_index_and_attr
+from fast_td3.robots.graph_builder import GraphBuilder
+
+# Environment classification for object inclusion
+env_with_object = [
+    "h1-push-v0",  # medium
+    "h1-basketball-v0",  # very hard
+    "h1-package-v0",  # medium
+    "h1-sit_hard-v0",  # hard
+    "h1-balance_simple-v0",  # hard
+]
+
+env_without_object = [
+    "h1-walk-v0",
+    "h1-reach-v0",
+    "h1-hurdle-v0",
+    "h1-crawl-v0",
+    "h1-maze-v0",
+    "h1-highbar_simple-v0",
+    "h1-stand-v0",
+    "h1-run-v0",
+    "h1-sit_simple-v0",
+    "h1-stairs-v0",
+    "h1-slide-v0",
+    "h1-pole-v0",
+]
 
 
 class E_GCL(nn.Module):
@@ -156,6 +180,7 @@ class EGNN(nn.Module):
         act_fn,
         n_layers,
         robot,
+        env_name,
         residual=True,
         attention=False,
         normalize=False,
@@ -187,90 +212,77 @@ class EGNN(nn.Module):
         self.hidden_nf = hidden_nf
         self.device = device
         self.n_layers = n_layers
-        self.embedding_in = nn.Sequential(
-            nn.Linear(in_node_nf, self.hidden_nf),
-            act_fn
+        self.out_node_nf = out_node_nf
+        self.batch_size = batch_size
+        self.has_mixed_node_types = env_name in env_with_object
+        self.robot = robot
+        self.graph_builder = GraphBuilder(env_name, batch_size, device, robot)
+        self.num_joints = self.graph_builder.robot.num_joints
+        self.num_edges = self.graph_builder.robot.num_edges
+        self._edges_cache = {}
+
+        self.layers = nn.ModuleList(
+            [
+                E_GCL(
+                    self.hidden_nf,
+                    self.hidden_nf,
+                    self.hidden_nf,
+                    edges_in_d=in_edge_nf,
+                    act_fn=act_fn,
+                    residual=residual,
+                    attention=attention,
+                    normalize=normalize,
+                    tanh=tanh,
+                    coords_agg=coords_agg,
+                )
+                for _ in range(n_layers)
+            ]
         )
-        self.embedding_out = nn.Sequential(
+
+        self.joint_embedding_in = nn.Sequential(
+            nn.Linear(in_node_nf, self.hidden_nf), act_fn
+        )
+        self.joint_embedding_out = nn.Sequential(
             nn.Linear(self.hidden_nf, out_node_nf),
             nn.Tanh(),
         )
-        self.batch_size = batch_size
-        # Use ModuleList for fast iteration and to avoid dict lookups
-        self.layers = nn.ModuleList([
-            E_GCL(
-                self.hidden_nf,
-                self.hidden_nf,
-                self.hidden_nf,
-                edges_in_d=in_edge_nf,
-                act_fn=act_fn,
-                residual=residual,
-                attention=attention,
-                normalize=normalize,
-                tanh=tanh,
-                coords_agg=coords_agg,
-            ) for _ in range(n_layers)
-        ])
-        self.robot = robot
-        # Ensure all parameters and submodules are on the requested device
+        
         self.to(self.device)
 
-        edge_index, edge_attr, num_nodes, num_edges = build_edge_index_and_attr(
-            self.robot, self.batch_size, self.device
-        )
-        self.edge_index = edge_index
-        self.edge_attr = edge_attr
-        self.num_nodes = num_nodes
-        self.num_edges = num_edges
-        # Cache for smaller batch sizes to avoid repeated slicing
-        self._edge_cache = {}
+    def forward(self, obs: torch.Tensor, xanchor: torch.Tensor) -> torch.Tensor:
+        current_batch_size = obs.shape[0]
+        edges = self.get_cached_edges(current_batch_size)
+        h_joints, x_joint, _, _ = self.graph_builder.generate_input(obs, xanchor)
 
-    def forward(self, h, x, edges, edge_attr):
-        current_batch_size = int(h.shape[0] / self.num_nodes)
-
-        h = self.embedding_in(h)
-
+        h_joints = self.joint_embedding_in(h_joints)
         for layer in self.layers:
-            h, x, _ = layer(h, edges, x, edge_attr=edge_attr)
+            h_joints, x_joint, _ = layer(h=h_joints, edge_index=edges, coord=x_joint)
 
-        h = self.embedding_out(h)
+        actions = self.joint_embedding_out(h_joints)
 
-        h = h.view(current_batch_size, self.num_nodes)
+        return actions.view(current_batch_size, self.num_joints)
 
-        return h
+    def generate_index(self, batch_size: int, device="cuda"):
+        src, dst = zip(*self.graph_builder.robot.joint_connections)
 
-    def build_batched_egnn_input(self, obs: torch.tensor, xpos: torch.tensor):
-        batch_size = obs.shape[0]
-        if batch_size == self.batch_size:
-            edge_index = self.edge_index
-            edge_attr = self.edge_attr
-        else:
-            assert (
-                batch_size <= self.batch_size
-            ), "Batch size exceeds the maximum batch size."
-            if batch_size in self._edge_cache:
-                edge_index, edge_attr = self._edge_cache[batch_size]
-            else:
-                edge_index = [
-                    self.edge_index[0][: batch_size * self.num_edges],
-                    self.edge_index[1][: batch_size * self.num_edges],
-                ]
-                edge_attr = self.edge_attr[: batch_size * self.num_edges]
-                self._edge_cache[batch_size] = (edge_index, edge_attr)
+        src = torch.tensor(src, dtype=torch.long, device=device)
+        dst = torch.tensor(dst, dtype=torch.long, device=device)
 
-        # Broadcast subtract base position, then reshape
-        x = (xpos[:, 1:] - xpos[:, [0]]).reshape(-1, 3)
+        # Create batch offsets and expand edges
+        offsets = torch.arange(batch_size, device=device) * self.num_joints
+        src_batch = (src.unsqueeze(0) + offsets.unsqueeze(1)).flatten()
+        dst_batch = (dst.unsqueeze(0) + offsets.unsqueeze(1)).flatten()
 
-        if self.robot == "h1":
-            # Concatenate features directly to avoid extra stack/squeeze
-            h = torch.cat([obs[:, 32:].reshape(-1, 1), obs[:, 7:26].reshape(-1, 1)], dim=1)  # (B*N, 2)
-        elif self.robot == "g1":
-            h = torch.cat([obs[:, 50:].reshape(-1, 1), obs[:, 7:44].reshape(-1, 1)], dim=1)  # (B*N, 2)
+        return torch.stack([src_batch, dst_batch])
 
-        if self.in_edge_nf == 0:
-            edge_attr = None
+    def get_cached_edges(self, current_batch_size: int):
+        if current_batch_size in self._edges_cache:
+            return self._edges_cache[current_batch_size]
 
-        return h, x, edge_index, edge_attr
+        # Generate, cache, and return
+        edges = self.generate_index(current_batch_size, self.device)
+        self._edges_cache[current_batch_size] = edges
+        return edges
 
 
 @torch.jit.script
@@ -302,49 +314,3 @@ def unsorted_segment_mean(data: torch.Tensor, segment_ids: torch.Tensor, num_seg
     
     # Use torch.where to handle division by zero
     return torch.where(count > 0, result / count, result)
-
-
-def get_edges(n_nodes):
-    rows, cols = [], []
-    for i in range(n_nodes):
-        for j in range(n_nodes):
-            if i != j:
-                rows.append(i)
-                cols.append(j)
-
-    edges = [rows, cols]
-    return edges
-
-
-def get_edges_batch(n_nodes, batch_size):
-    edges = get_edges(n_nodes)
-    edge_attr = torch.ones(len(edges[0]) * batch_size, 1)
-    edges = [torch.LongTensor(edges[0]), torch.LongTensor(edges[1])]
-    if batch_size == 1:
-        return edges, edge_attr
-    elif batch_size > 1:
-        rows, cols = [], []
-        for i in range(batch_size):
-            rows.append(edges[0] + n_nodes * i)
-            cols.append(edges[1] + n_nodes * i)
-        edges = [torch.cat(rows), torch.cat(cols)]
-    return edges, edge_attr
-
-
-if __name__ == "__main__":
-    # Dummy parameters
-    batch_size = 8
-    n_nodes = 4
-    n_feat = 1
-    x_dim = 3
-
-    # Dummy variables h, x and fully connected edges
-    h = torch.ones(batch_size * n_nodes, n_feat)
-    x = torch.ones(batch_size * n_nodes, x_dim)
-    edges, edge_attr = get_edges_batch(n_nodes, batch_size)
-
-    # Initialize EGNN
-    egnn = EGNN(in_node_nf=n_feat, hidden_nf=32, out_node_nf=1, in_edge_nf=1)
-
-    # Run EGNN
-    h, x = egnn(h, x, edges, edge_attr)

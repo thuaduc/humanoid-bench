@@ -1,242 +1,319 @@
 import enum
-import torch
-from torch_geometric.data import HeteroData
-from collections import defaultdict
-
-class NodeType(str, enum.Enum):
-    JOINT = "joint"
-
-class H1:
-    joint_dict = {
-        "left_hip_yaw": 0,
-        "left_hip_roll": 1,
-        "left_hip_pitch": 2,
-        "left_knee": 3,
-        "left_ankle": 4,
-        "right_hip_yaw": 5,
-        "right_hip_roll": 6,
-        "right_hip_pitch": 7,
-        "right_knee": 8,
-        "right_ankle": 9,
-        "torso": 10,
-        "left_shoulder_pitch": 11,
-        "left_shoulder_roll": 12,
-        "left_shoulder_yaw": 13,
-        "left_elbow": 14,
-        "right_shoulder_pitch": 15,
-        "right_shoulder_roll": 16,
-        "right_shoulder_yaw": 17,
-        "right_elbow": 18,
-    }
-
-    edge_list = [
-        # left hip yaw
-        (joint_dict["left_hip_yaw"], joint_dict["left_hip_roll"]),
-        (joint_dict["left_hip_yaw"], joint_dict["left_hip_pitch"]),
-        (joint_dict["left_hip_yaw"], joint_dict["left_knee"]),
-        (joint_dict["left_hip_yaw"], joint_dict["torso"]),
-
-        # left hip pitch
-        (joint_dict["left_hip_pitch"], joint_dict["left_hip_yaw"]),
-        (joint_dict["left_hip_pitch"], joint_dict["left_hip_roll"]),
-        (joint_dict["left_hip_pitch"], joint_dict["left_knee"]),
-        (joint_dict["left_hip_pitch"], joint_dict["torso"]),
-
-        # left hip roll
-        (joint_dict["left_hip_roll"], joint_dict["left_hip_yaw"]),
-        (joint_dict["left_hip_roll"], joint_dict["left_hip_pitch"]),
-        (joint_dict["left_hip_roll"], joint_dict["left_knee"]),
-        (joint_dict["left_hip_roll"], joint_dict["torso"]),
-
-        # left knee
-        (joint_dict["left_knee"], joint_dict["left_ankle"]),
-        (joint_dict["left_knee"], joint_dict["torso"]),
-        (joint_dict["left_knee"], joint_dict["left_hip_yaw"]),
-        (joint_dict["left_knee"], joint_dict["left_hip_roll"]),
-        (joint_dict["left_knee"], joint_dict["left_hip_pitch"]),
-
-        # left ankle
-        (joint_dict["left_ankle"], joint_dict["left_knee"]),
+from .robot import Robot
 
 
-        # right hip yaw
-        (joint_dict["right_hip_yaw"], joint_dict["right_hip_roll"]),
-        (joint_dict["right_hip_yaw"], joint_dict["right_hip_pitch"]),
-        (joint_dict["right_hip_yaw"], joint_dict["right_knee"]),
-        (joint_dict["right_hip_yaw"], joint_dict["torso"]),
+class H1(Robot):
+    """H1 Robot metadata and topology."""
 
-        # right hip pitch
-        (joint_dict["right_hip_pitch"], joint_dict["right_hip_yaw"]),
-        (joint_dict["right_hip_pitch"], joint_dict["right_hip_roll"]),
-        (joint_dict["right_hip_pitch"], joint_dict["right_knee"]),
-        (joint_dict["right_hip_pitch"], joint_dict["torso"]),
+    def __init__(self):
+        super().__init__()
+        self._connections = set()
+        self._initialize_connections()
 
-        # right hip roll
-        (joint_dict["right_hip_roll"], joint_dict["right_hip_yaw"]),
-        (joint_dict["right_hip_roll"], joint_dict["right_hip_pitch"]),
-        (joint_dict["right_hip_roll"], joint_dict["right_knee"]),
-        (joint_dict["right_hip_roll"], joint_dict["torso"]),
+    class JOINT(enum.IntEnum):
+        left_hip_yaw = 0
+        left_hip_roll = 1
+        left_hip_pitch = 2
+        left_knee = 3
+        left_ankle = 4
+        right_hip_yaw = 5
+        right_hip_roll = 6
+        right_hip_pitch = 7
+        right_knee = 8
+        right_ankle = 9
+        torso = 10
+        left_shoulder_pitch = 11
+        left_shoulder_roll = 12
+        left_shoulder_yaw = 13
+        left_elbow = 14
+        right_shoulder_pitch = 15
+        right_shoulder_roll = 16
+        right_shoulder_yaw = 17
+        right_elbow = 18
 
-        # right knee
-        (joint_dict["right_knee"], joint_dict["right_ankle"]),
-        (joint_dict["right_knee"], joint_dict["torso"]),
-        (joint_dict["right_knee"], joint_dict["right_hip_yaw"]),
-        (joint_dict["right_knee"], joint_dict["right_hip_roll"]),
-        (joint_dict["right_knee"], joint_dict["right_hip_pitch"]),
+    def add_connection(self, joint1, joint2):
+        """Add a bidirectional connection between two joints."""
+        self._connections.add((joint1, joint2))
+        self._connections.add((joint2, joint1))
 
-        # right ankle
-        (joint_dict["right_ankle"], joint_dict["right_knee"]),
+    def _initialize_connections(self):
+        """Initialize the default joint connections."""
 
-        # torso
-        (joint_dict["torso"], joint_dict["left_hip_yaw"]),
-        (joint_dict["torso"], joint_dict["right_hip_yaw"]),
-        (joint_dict["torso"], joint_dict["left_hip_roll"]),
-        (joint_dict["torso"], joint_dict["right_hip_roll"]),
-        (joint_dict["torso"], joint_dict["left_hip_pitch"]),
-        (joint_dict["torso"], joint_dict["right_hip_pitch"]),
-        (joint_dict["torso"], joint_dict["left_shoulder_pitch"]),
-        (joint_dict["torso"], joint_dict["right_shoulder_pitch"]),
-        (joint_dict["torso"], joint_dict["left_shoulder_roll"]),
-        (joint_dict["torso"], joint_dict["right_shoulder_roll"]),
-        (joint_dict["torso"], joint_dict["left_shoulder_yaw"]),
-        (joint_dict["torso"], joint_dict["right_shoulder_yaw"]),
+        default_undirected_connections = [
+            # Left leg chain and internal connections
+            (self.JOINT.left_hip_yaw, self.JOINT.left_hip_roll),
+            (self.JOINT.left_hip_yaw, self.JOINT.left_hip_pitch),
+            (self.JOINT.left_hip_roll, self.JOINT.left_hip_pitch),
+            (self.JOINT.left_hip_yaw, self.JOINT.left_knee),
+            (self.JOINT.left_hip_roll, self.JOINT.left_knee),
+            (self.JOINT.left_hip_pitch, self.JOINT.left_knee),
+            (self.JOINT.left_knee, self.JOINT.left_ankle),
+            # Right leg chain and internal connections
+            (self.JOINT.right_hip_yaw, self.JOINT.right_hip_roll),
+            (self.JOINT.right_hip_yaw, self.JOINT.right_hip_pitch),
+            (self.JOINT.right_hip_roll, self.JOINT.right_hip_pitch),
+            (self.JOINT.right_hip_yaw, self.JOINT.right_knee),
+            (self.JOINT.right_hip_roll, self.JOINT.right_knee),
+            (self.JOINT.right_hip_pitch, self.JOINT.right_knee),
+            (self.JOINT.right_knee, self.JOINT.right_ankle),
+            # Left arm chain and internal connections
+            (self.JOINT.left_shoulder_pitch, self.JOINT.left_shoulder_roll),
+            (self.JOINT.left_shoulder_pitch, self.JOINT.left_shoulder_yaw),
+            (self.JOINT.left_shoulder_roll, self.JOINT.left_shoulder_yaw),
+            (self.JOINT.left_shoulder_roll, self.JOINT.left_elbow),
+            (self.JOINT.left_shoulder_pitch, self.JOINT.left_elbow),
+            (self.JOINT.left_shoulder_roll, self.JOINT.left_elbow),
+            (self.JOINT.left_shoulder_yaw, self.JOINT.left_elbow),
+            # Right arm chain and internal connections
+            (self.JOINT.right_shoulder_pitch, self.JOINT.right_shoulder_roll),
+            (self.JOINT.right_shoulder_pitch, self.JOINT.right_shoulder_yaw),
+            (self.JOINT.right_shoulder_roll, self.JOINT.right_shoulder_yaw),
+            (self.JOINT.right_shoulder_pitch, self.JOINT.right_elbow),
+            (self.JOINT.right_shoulder_roll, self.JOINT.right_elbow),
+            (self.JOINT.right_shoulder_yaw, self.JOINT.right_elbow),
+            # Torso connections to all joints
+            (self.JOINT.torso, self.JOINT.left_hip_yaw),
+            (self.JOINT.torso, self.JOINT.left_hip_roll),
+            (self.JOINT.torso, self.JOINT.left_hip_pitch),
+            (self.JOINT.torso, self.JOINT.left_knee),
+            (self.JOINT.torso, self.JOINT.left_ankle),
+            (self.JOINT.torso, self.JOINT.right_hip_yaw),
+            (self.JOINT.torso, self.JOINT.right_hip_roll),
+            (self.JOINT.torso, self.JOINT.right_hip_pitch),
+            (self.JOINT.torso, self.JOINT.right_knee),
+            (self.JOINT.torso, self.JOINT.right_ankle),
+            (self.JOINT.torso, self.JOINT.left_shoulder_pitch),
+            (self.JOINT.torso, self.JOINT.left_shoulder_roll),
+            (self.JOINT.torso, self.JOINT.left_shoulder_yaw),
+            (self.JOINT.torso, self.JOINT.left_elbow),
+            (self.JOINT.torso, self.JOINT.right_shoulder_pitch),
+            (self.JOINT.torso, self.JOINT.right_shoulder_roll),
+            (self.JOINT.torso, self.JOINT.right_shoulder_yaw),
+            (self.JOINT.torso, self.JOINT.right_elbow),
+        ]
+        # Add each undirected pair (bidirectional will be added automatically)
+        for a, b in default_undirected_connections:
+            self.add_connection(a, b)
 
-        # left shoulder pitch
-        (joint_dict["left_shoulder_pitch"], joint_dict["torso"]),
-        (joint_dict["left_shoulder_pitch"], joint_dict["left_shoulder_roll"]),
-        (joint_dict["left_shoulder_pitch"], joint_dict["left_shoulder_yaw"]),
-        (joint_dict["left_shoulder_pitch"], joint_dict["left_elbow"]),
-
-        # left shoulder yaw
-        (joint_dict["left_shoulder_yaw"], joint_dict["torso"]),
-        (joint_dict["left_shoulder_yaw"], joint_dict["left_shoulder_roll"]),
-        (joint_dict["left_shoulder_yaw"], joint_dict["left_shoulder_pitch"]),
-        (joint_dict["left_shoulder_yaw"], joint_dict["left_elbow"]),
-
-        # left shoulder roll
-        (joint_dict["left_shoulder_roll"], joint_dict["torso"]),
-        (joint_dict["left_shoulder_roll"], joint_dict["left_shoulder_pitch"]),
-        (joint_dict["left_shoulder_roll"], joint_dict["left_shoulder_yaw"]),
-        (joint_dict["left_shoulder_roll"], joint_dict["left_elbow"]),
-
-        # left elbow
-        (joint_dict["left_elbow"], joint_dict["left_shoulder_roll"]),
-        (joint_dict["left_elbow"], joint_dict["left_shoulder_pitch"]),
-        (joint_dict["left_elbow"], joint_dict["left_shoulder_yaw"]),
-
-        # right shoulder pitch
-        (joint_dict["right_shoulder_pitch"], joint_dict["torso"]),
-        (joint_dict["right_shoulder_pitch"], joint_dict["right_shoulder_roll"]),
-        (joint_dict["right_shoulder_pitch"], joint_dict["right_shoulder_yaw"]),
-        (joint_dict["right_shoulder_pitch"], joint_dict["right_elbow"]),
-
-        # right shoulder yaw
-        (joint_dict["right_shoulder_yaw"], joint_dict["torso"]),
-        (joint_dict["right_shoulder_yaw"], joint_dict["right_shoulder_roll"]),
-        (joint_dict["right_shoulder_yaw"], joint_dict["right_shoulder_pitch"]),
-        (joint_dict["right_shoulder_yaw"], joint_dict["right_elbow"]),
-
-        # right shoulder roll
-        (joint_dict["right_shoulder_roll"], joint_dict["torso"]),
-        (joint_dict["right_shoulder_roll"], joint_dict["right_shoulder_pitch"]),
-        (joint_dict["right_shoulder_roll"], joint_dict["right_shoulder_yaw"]),
-        (joint_dict["right_shoulder_roll"], joint_dict["right_elbow"]),
-
-        # right elbow
-        (joint_dict["right_elbow"], joint_dict["right_shoulder_roll"]),
-        (joint_dict["right_elbow"], joint_dict["right_shoulder_pitch"]),
-    ]
+    @property
+    def num_edges(self):
+        """Number of edges in the robot graph."""
+        return len(self.joint_connections)
     
-    edge_type_encoding = [
-        0,  # (left_hip_yaw, left_hip_roll)      - left_leg
-        1,  # (left_hip_roll, left_hip_pitch)    - left_leg
-        2,  # (left_hip_pitch, left_knee)        - left_leg
-        3,  # (left_knee, left_ankle)            - left_leg
-        0,  # (right_hip_yaw, right_hip_roll)    - right_leg
-        1,  # (right_hip_roll, right_hip_pitch)  - right_leg
-        2,  # (right_hip_pitch, right_knee)      - right_leg
-        3,  # (right_knee, right_ankle)          - right_leg
-        4,  # (torso, left_hip_yaw)              - torso_connection
-        4,  # (torso, right_hip_yaw)             - torso_connection
-        5,  # (torso, left_shoulder_pitch)      - left_arm
-        6,  # (left_shoulder_pitch, left_shoulder_roll) - left_arm
-        7,  # (left_shoulder_roll, left_shoulder_yaw)   - left_arm
-        8,  # (left_shoulder_yaw, left_elbow)            - left_arm
-        5,  # (torso, right_shoulder_pitch)     - right_arm
-        6,  # (right_shoulder_pitch, right_shoulder_roll) - right_arm
-        7,  # (right_shoulder_roll, right_shoulder_yaw)   - right_arm
-        8,  # (right_shoulder_yaw, right_elbow)            - right_arm
-    ]
+    @property
+    def num_joints(self):
+        """Number of joints in the robot graph."""
+        return len(self.JOINT)
 
-    node_type_encoding = [
-        0,  # left_hip_yaw
-        1,  # left_hip_roll,
-        2,  # left_hip_pitch
-        3,  # left_knee
-        4,  # left_ankle
-        0,  # right_hip_yaw
-        1,  # right_hip_roll
-        2,  # right_hip_pitch
-        3,  # right_knee
-        4,  # right_ankle
-        5,  # torso
-        6,  # left_shoulder_pitch
-        7,  # left_shoulder_roll
-        8,  # left_shoulder_yaw
-        9,  # left_elbow
-        6,  # right_shoulder_pitch
-        7,  # right_shoulder_roll
-        8,  # right_shoulder_yaw
-        9,  # right_elbow
-    ]
-
-    num_nodes = len(joint_dict)
-    num_edges = len(edge_list)
-
-    JOINT_TYPE_MAP = {
-        "left_hip_yaw": "hip",
-        "left_hip_roll": "hip",
-        "left_hip_pitch": "hip",
-        "right_hip_yaw": "hip",
-        "right_hip_roll": "hip",
-        "right_hip_pitch": "hip",
-        "left_knee": "knee",
-        "right_knee": "knee",
-        "left_ankle": "ankle",
-        "right_ankle": "ankle",
-        "torso": "torso",
-        "left_shoulder_pitch": "shoulder",
-        "left_shoulder_roll": "shoulder",
-        "left_shoulder_yaw": "shoulder",
-        "left_elbow": "elbow",
-        "right_shoulder_pitch": "shoulder",
-        "right_shoulder_roll": "shoulder",
-        "right_shoulder_yaw": "shoulder",
-        "right_elbow": "elbow",
-    }
-
-    node_type = NodeType
-
-    def create_joint_graph(self, batch_edge_index, batch_edge_attr,  joint_positions) -> HeteroData:
-        hetero_data = HeteroData()
-        hetero_data[self.node_type.JOINT].x = joint_positions
-        hetero_data[self.node_type.JOINT, 'connects', self.node_type.JOINT].edge_index = batch_edge_index
-        hetero_data[self.node_type.JOINT, 'connects', self.node_type.JOINT].edge_attr = batch_edge_attr
-        
-        return hetero_data
-
-h1 = H1()
+    @property
+    def joint_connections(self):
+        """List of directed joint-to-joint edges (no object)."""
+        return sorted(self._connections)
 
 
-if __name__ == "__main__":
-    h1 = H1()
 
-    batch_size = 4
-    num_nodes = 19
+    @property
+    def connection_colors(self):
+        return {
+            "torso_ankle": "#FF0000",  # Red - Torso to ankle
+            "torso_hip": "#FF6600",  # Orange - Torso to hip
+            "torso_shoulder": "#0066FF",  # Blue - Torso to shoulder
+            "torso_elbow": "#0033CC",  # Dark blue - Torso to elbow
+            "torso_other": "#666666",  # Gray - Other torso connections
+            "hip_internal": "#00CC00",  # Green - Hip internal connections
+            "hip_knee": "#00AA00",  # Dark green - Hip to knee
+            "knee_ankle": "#008800",  # Darker green - Knee to ankle
+            "leg_other": "#004400",  # Very dark green - Other leg connections
+            "shoulder_internal": "#00CCCC",  # Cyan - Shoulder internal connections
+            "shoulder_elbow": "#0099AA",  # Teal - Shoulder to elbow
+            "arm_other": "#006666",  # Dark teal - Other arm connections
+            "cross_body": "#333333",  # Dark gray - Cross body connections
+        }
 
-    x = torch.randn(batch_size*num_nodes, 3)
-    edge_index = torch.rand(batch_size*18, 1) 
-    edge_attr = torch.rand(batch_size*18, 1)   
+    def get_joint_name(self, joint_id):
+        """Convert a node id to readable name."""
+        try:
+            return self.JOINT(joint_id).name
+        except ValueError:
+            return f"node_{joint_id}"
 
-    graph = h1.create_joint_graph(edge_index, edge_attr, x)
-    print(graph)
+    def get_robot_layout_positions(self):
+        """Define positions to create a robot-like symmetric layout."""
+        positions = {}
+        positions[self.JOINT.torso] = (0, 0)  # Torso center
+
+        # Left arm (from torso perspective)
+        positions[self.JOINT.left_shoulder_pitch] = (-1, 0.6)
+        positions[self.JOINT.left_shoulder_roll] = (-0.7, 0.3)
+        positions[self.JOINT.left_shoulder_yaw] = (-1, 0)
+        positions[self.JOINT.left_elbow] = (-1.5, 0.3)
+
+        # Right arm (symmetric)
+        positions[self.JOINT.right_shoulder_pitch] = (1, 0.6)
+        positions[self.JOINT.right_shoulder_roll] = (0.7, 0.3)
+        positions[self.JOINT.right_shoulder_yaw] = (1, 0)
+        positions[self.JOINT.right_elbow] = (1.5, 0.3)
+
+        # Left leg
+        positions[self.JOINT.left_hip_yaw] = (-0.5, -0.5)
+        positions[self.JOINT.left_hip_roll] = (-0.7, -1)
+        positions[self.JOINT.left_hip_pitch] = (-0.3, -1)
+        positions[self.JOINT.left_knee] = (-0.5, -2)
+        positions[self.JOINT.left_ankle] = (-0.5, -2.5)
+
+        # Right leg (symmetric)
+        positions[self.JOINT.right_hip_yaw] = (0.5, -0.5)
+        positions[self.JOINT.right_hip_roll] = (0.7, -1)
+        positions[self.JOINT.right_hip_pitch] = (0.3, -1)
+        positions[self.JOINT.right_knee] = (0.5, -2)
+        positions[self.JOINT.right_ankle] = (0.5, -2.5)
+
+        return positions
+
+    def get_connection_type(self, joint1_id, joint2_id):
+        # Ensure consistent ordering for lookup
+        j1, j2 = sorted([joint1_id, joint2_id])
+
+        # Torso connections (highest priority)
+        if j1 == self.JOINT.torso or j2 == self.JOINT.torso:
+            other_joint = j1 if j2 == self.JOINT.torso else j2
+
+            # Torso to ankle
+            if other_joint in [self.JOINT.left_ankle, self.JOINT.right_ankle]:
+                return "torso_ankle"
+            # Torso to hip
+            elif other_joint in [
+                self.JOINT.left_hip_yaw,
+                self.JOINT.left_hip_roll,
+                self.JOINT.left_hip_pitch,
+                self.JOINT.right_hip_yaw,
+                self.JOINT.right_hip_roll,
+                self.JOINT.right_hip_pitch,
+            ]:
+                return "torso_hip"
+            # Torso to shoulder
+            elif other_joint in [
+                self.JOINT.left_shoulder_pitch,
+                self.JOINT.left_shoulder_roll,
+                self.JOINT.left_shoulder_yaw,
+                self.JOINT.right_shoulder_pitch,
+                self.JOINT.right_shoulder_roll,
+                self.JOINT.right_shoulder_yaw,
+            ]:
+                return "torso_shoulder"
+            # Torso to elbow
+            elif other_joint in [self.JOINT.left_elbow, self.JOINT.right_elbow]:
+                return "torso_elbow"
+            else:
+                return "torso_other"
+
+        # Left leg connections
+        left_leg_joints = [
+            self.JOINT.left_hip_yaw,
+            self.JOINT.left_hip_roll,
+            self.JOINT.left_hip_pitch,
+            self.JOINT.left_knee,
+            self.JOINT.left_ankle,
+        ]
+        if j1 in left_leg_joints and j2 in left_leg_joints:
+            # Hip internal connections
+            left_hip_joints = [
+                self.JOINT.left_hip_yaw,
+                self.JOINT.left_hip_roll,
+                self.JOINT.left_hip_pitch,
+            ]
+            if j1 in left_hip_joints and j2 in left_hip_joints:
+                return "hip_internal"
+            # Hip to knee
+            elif (j1 in left_hip_joints and j2 == self.JOINT.left_knee) or (
+                j1 == self.JOINT.left_knee and j2 in left_hip_joints
+            ):
+                return "hip_knee"
+            # Knee to ankle
+            elif (j1 == self.JOINT.left_knee and j2 == self.JOINT.left_ankle) or (
+                j1 == self.JOINT.left_ankle and j2 == self.JOINT.left_knee
+            ):
+                return "knee_ankle"
+            else:
+                return "leg_other"
+
+        # Right leg connections
+        right_leg_joints = [
+            self.JOINT.right_hip_yaw,
+            self.JOINT.right_hip_roll,
+            self.JOINT.right_hip_pitch,
+            self.JOINT.right_knee,
+            self.JOINT.right_ankle,
+        ]
+        if j1 in right_leg_joints and j2 in right_leg_joints:
+            # Hip internal connections
+            right_hip_joints = [
+                self.JOINT.right_hip_yaw,
+                self.JOINT.right_hip_roll,
+                self.JOINT.right_hip_pitch,
+            ]
+            if j1 in right_hip_joints and j2 in right_hip_joints:
+                return "hip_internal"
+            # Hip to knee
+            elif (j1 in right_hip_joints and j2 == self.JOINT.right_knee) or (
+                j1 == self.JOINT.right_knee and j2 in right_hip_joints
+            ):
+                return "hip_knee"
+            # Knee to ankle
+            elif (j1 == self.JOINT.right_knee and j2 == self.JOINT.right_ankle) or (
+                j1 == self.JOINT.right_ankle and j2 == self.JOINT.right_knee
+            ):
+                return "knee_ankle"
+            else:
+                return "leg_other"
+
+        # Left arm connections
+        left_arm_joints = [
+            self.JOINT.left_shoulder_pitch,
+            self.JOINT.left_shoulder_roll,
+            self.JOINT.left_shoulder_yaw,
+            self.JOINT.left_elbow,
+        ]
+        if j1 in left_arm_joints and j2 in left_arm_joints:
+            # Shoulder internal connections
+            left_shoulder_joints = [
+                self.JOINT.left_shoulder_pitch,
+                self.JOINT.left_shoulder_roll,
+                self.JOINT.left_shoulder_yaw,
+            ]
+            if j1 in left_shoulder_joints and j2 in left_shoulder_joints:
+                return "shoulder_internal"
+            # Shoulder to elbow
+            elif (j1 in left_shoulder_joints and j2 == self.JOINT.left_elbow) or (
+                j1 == self.JOINT.left_elbow and j2 in left_shoulder_joints
+            ):
+                return "shoulder_elbow"
+            else:
+                return "arm_other"
+
+        # Right arm connections
+        right_arm_joints = [
+            self.JOINT.right_shoulder_pitch,
+            self.JOINT.right_shoulder_roll,
+            self.JOINT.right_shoulder_yaw,
+            self.JOINT.right_elbow,
+        ]
+        if j1 in right_arm_joints and j2 in right_arm_joints:
+            # Shoulder internal connections
+            right_shoulder_joints = [
+                self.JOINT.right_shoulder_pitch,
+                self.JOINT.right_shoulder_roll,
+                self.JOINT.right_shoulder_yaw,
+            ]
+            if j1 in right_shoulder_joints and j2 in right_shoulder_joints:
+                return "shoulder_internal"
+            # Shoulder to elbow
+            elif (j1 in right_shoulder_joints and j2 == self.JOINT.right_elbow) or (
+                j1 == self.JOINT.right_elbow and j2 in right_shoulder_joints
+            ):
+                return "shoulder_elbow"
+            else:
+                return "arm_other"
+
+        # Cross-body connections
+        return "cross_body"

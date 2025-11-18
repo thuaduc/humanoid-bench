@@ -30,14 +30,8 @@ from fast_td3.fast_td3_utils import (
     save_params,
 )
 from fast_td3 import Critic
-from fast_td3.actors import (
-    ActorEGNN,
-    Actor,
-    ActorMPNN,
-    ActorHEPI,
-    ActorAEGNN,
-    ActorPONITA,
-)
+
+from fast_td3.train_utils import create_actor, collect_gradient_stats
 from fast_td3.hyperparams import HumanoidBenchArgs
 import argparse
 from fast_td3.environments.humanoid_bench_env import HumanoidBenchEnv
@@ -48,100 +42,6 @@ import tempfile
 import os
 
 
-def create_actor(
-    actor_type,
-    n_obs,
-    n_act,
-    num_envs,
-    batch_size,
-    device,
-    init_scale,
-    model_kwargs,
-    actor_hidden_dim=None,
-):
-    """
-    Helper function to create an actor based on the specified type.
-
-    Args:
-        actor_type (str): Type of actor ("egnn", "mlp", "mpnn", "hepi")
-        n_obs (int): Number of observations
-        n_act (int): Number of actions
-        num_envs (int): Number of environments
-        batch_size (int): Batch size
-        device (torch.device): Device to place the actor on
-        init_scale (float): Initialization scale
-        model_kwargs (dict): Additional model parameters
-        actor_hidden_dim (int, optional): Hidden dimension for MLP actor
-
-    Returns:
-        Actor: The created actor instance
-
-    Raises:
-        ValueError: If actor_type is not supported
-    """
-    if actor_type == "egnn":
-        return ActorEGNN(
-            n_obs=n_obs,
-            n_act=n_act,
-            num_envs=num_envs,
-            batch_size=batch_size,
-            device=device,
-            init_scale=init_scale,
-            **model_kwargs,
-        )
-    elif actor_type == "mlp":
-        return Actor(
-            n_obs=n_obs,
-            n_act=n_act,
-            num_envs=num_envs,
-            device=device,
-            init_scale=init_scale,
-            hidden_dim=actor_hidden_dim,
-        )
-    elif actor_type == "mpnn":
-        return ActorMPNN(
-            n_obs=n_obs,
-            n_act=n_act,
-            num_envs=num_envs,
-            batch_size=batch_size,
-            device=device,
-            **model_kwargs,
-        )
-    elif actor_type == "hepi":
-        return ActorHEPI(
-            n_obs=n_obs,
-            n_act=n_act,
-            num_envs=num_envs,
-            batch_size=batch_size,
-            device=device,
-            **model_kwargs,
-        )
-    elif actor_type == "aegnn":
-        return ActorAEGNN(
-            n_obs=n_obs,
-            n_act=n_act,
-            num_envs=num_envs,
-            batch_size=batch_size,
-            device=device,
-            init_scale=init_scale,
-            **model_kwargs,
-        )
-    elif actor_type == "ponita":
-        return ActorPONITA(
-            n_obs=n_obs,
-            n_act=n_act,
-            num_envs=num_envs,
-            batch_size=batch_size,
-            device=device,
-            robot="h1",
-            **model_kwargs,
-        )
-    else:
-        raise ValueError(
-            f"Unsupported actor type: {actor_type}. Supported types are: egnn, mlp, mpnn, hepi"
-        )
-
-
 def main():
     parser = argparse.ArgumentParser(description="Train humanoid using FastTD3")
     parser.add_argument(
@@ -149,7 +49,7 @@ def main():
         type=str,
         default="egnn",
         help="The kind of actor to use.",
-        choices=["egnn", "mlp", "mpnn", "hepi", "aegnn", "ponita"],
+        choices=["egnn", "mlp"],
     )
     parser.add_argument("--env_name", type=str, default="h1-stand-v0")
     parser.add_argument(
@@ -192,6 +92,12 @@ def main():
         help="Additional model parameters (as defined in the class) in JSON format (path to the file)."
         "If not provided, defaults params will be used.",
     )
+    parser.add_argument(
+        "--task_description",
+        type=str,
+        default="",
+        help="Description of the task/experiment to log to wandb.",
+    )
 
     terminal_args = vars(parser.parse_args())
 
@@ -215,28 +121,30 @@ def main():
 
     use_wandb = terminal_args["wandb"]
     uid = uuid.uuid4().hex[:6]  # 6-char unique ID
-
-    run_name = (
-        f"{terminal_args['actor']}_"
-        f"{args.env_name}_"
-        f"{args.num_envs}envs_"
-        f"{args.total_timesteps}steps_"
-        f"{uid}"
-    )
-
+    run_name = f"{terminal_args['actor']}_{args.env_name}_{args.num_envs}envs_{args.total_timesteps}steps_{uid}"
     if use_wandb:
+        
+        config = vars(args)
+        config["actor"] = terminal_args["actor"]
+        config["task_description"] = terminal_args["task_description"]
+        
         wandb.init(
             entity="thuaduc24042001-technical-university-of-munich",
             project="FastTD3 - new",
             name=run_name,
-            config=vars(args),
+            config=config,
             save_code=True,
             settings=wandb.Settings(
                 _disable_stats=True,  # disables CPU/memory/disk/GPU monitoring
                 _disable_meta=True,  # disables system metadata collection
             ),
         )
-        wandb.save("fast_td3/robots/h1.py")
+        
+        wandb.save("fast_td3/fast_td3/actors/gnn/egnn.py")
+        wandb.save("fast_td3/fast_td3/robots/H1.py")
+        wandb.save("fast_td3/fast_td3/robots/graph_builder.py")
+
+
 
     amp_enabled = args.amp and args.cuda and torch.cuda.is_available()
     amp_device_type = (
@@ -288,15 +196,15 @@ def main():
         critic_obs_normalizer = EmpiricalNormalization(
             shape=n_critic_obs, device=device
         )
-        xpos_normalizer = nn.Identity()
+        xanchor_normalizer = nn.Identity()
     else:
         obs_normalizer = nn.Identity()
         critic_obs_normalizer = nn.Identity()
-        xpos_normalizer = nn.Identity()
+        xanchor_normalizer = nn.Identity()
 
     normalize_obs = obs_normalizer.forward
     normalize_critic_obs = critic_obs_normalizer.forward
-    normalize_xpos = xpos_normalizer.forward
+    normalize_xanchor = xanchor_normalizer.forward
 
     # Create the main actor and actor detach (twin actor)
     actor = create_actor(
@@ -307,6 +215,7 @@ def main():
         batch_size=args.batch_size,
         device=device,
         init_scale=args.init_scale,
+        env_name=terminal_args["env_name"],
         model_kwargs=model_kwargs,
         actor_hidden_dim=args.actor_hidden_dim,
     )
@@ -318,24 +227,10 @@ def main():
         batch_size=args.batch_size,
         device=device,
         init_scale=args.init_scale,
+        env_name=terminal_args["env_name"],
         model_kwargs=model_kwargs,
         actor_hidden_dim=args.actor_hidden_dim,
     )
-
-    # For PONITA actors, we need to initialize LazyLinear layers before copying parameters
-    if terminal_args["actor"] == "ponita":
-        # Get initial observations to initialize the LazyLinear layers
-        if envs.asymmetric_obs:
-            init_obs, init_critic_obs = envs.reset_with_critic_obs()
-            init_critic_obs = torch.as_tensor(
-                init_critic_obs, device=device, dtype=torch.float
-            )
-        else:
-            init_obs, init_xpos = envs.reset()
-
-        # Initialize the main actor's LazyLinear layers with a dummy forward pass
-        with torch.no_grad():
-            _ = actor(init_obs.to(device), init_xpos.to(device))
 
     print(f"Actor num of parameters: {sum(p.numel() for p in actor.parameters())}")
     for name in actor.named_parameters():
@@ -388,6 +283,7 @@ def main():
         n_steps=args.num_steps,
         gamma=args.gamma,
         device=device,
+        env_name=terminal_args["env_name"],
     )
 
     checkpoint_path = terminal_args["checkpoint_path"]
@@ -398,7 +294,7 @@ def main():
 
         actor.load_state_dict(torch_checkpoint["actor_state_dict"])
         obs_normalizer.load_state_dict(torch_checkpoint["obs_normalizer_state"])
-        xpos_normalizer.load_state_dict(torch_checkpoint["xpos_normalizer_state"])
+        xanchor_normalizer.load_state_dict(torch_checkpoint["xanchor_normalizer_state"])
         critic_obs_normalizer.load_state_dict(
             torch_checkpoint["critic_obs_normalizer_state"]
         )
@@ -423,7 +319,7 @@ def main():
                 - average_episode_length: Mean number of steps across all evaluation episodes
         """
         obs_normalizer.eval()
-        xpos_normalizer.eval()
+        xanchor_normalizer.eval()
         num_eval_envs = eval_envs.num_envs
         episode_returns = torch.zeros(num_eval_envs, device=device)
         episode_lengths = torch.zeros(num_eval_envs, device=device)
@@ -432,7 +328,7 @@ def main():
         if env_type == "isaaclab":
             obs = eval_envs.reset(random_start_init=False)
         else:
-            obs, xpos = eval_envs.reset()
+            obs, xanchor = eval_envs.reset()
 
         # Run for a fixed number of steps
         for _ in range(eval_envs.max_episode_steps):
@@ -440,10 +336,10 @@ def main():
                 device_type=amp_device_type, dtype=amp_dtype, enabled=amp_enabled
             ):
                 obs = normalize_obs(obs)
-                xpos = normalize_xpos(xpos)
-                actions = actor(obs, xpos)
+                xanchor = normalize_xanchor(xanchor)
+                actions = actor(obs, xanchor)
 
-            next_obs, rewards, dones, _, next_xpos = eval_envs.step(actions.float())
+            next_obs, rewards, dones, _, next_xanchor = eval_envs.step(actions.float())
             episode_returns = torch.where(
                 ~done_masks, episode_returns + rewards, episode_returns
             )
@@ -454,26 +350,26 @@ def main():
             if done_masks.all():
                 break
             obs = next_obs
-            xpos = next_xpos
+            xanchor = next_xanchor
 
         obs_normalizer.train()
-        xpos_normalizer.train()
+        xanchor_normalizer.train()
         return episode_returns.mean().item(), episode_lengths.mean().item()
 
     def render_with_rollout():
         obs_normalizer.eval()
-        xpos_normalizer.eval()
+        xanchor_normalizer.eval()
 
         # Quick rollout for rendering
         if env_type == "humanoid_bench":
-            obs, xpos = render_env.reset()
+            obs, xanchor = render_env.reset()
             renders = [render_env.render()]
         elif env_type == "isaaclab":
             raise NotImplementedError(
                 "We don't support rendering for IsaacLab environments"
             )
         else:
-            obs, xpos = render_env.reset()
+            obs, xanchor = render_env.reset()
             render_env.state.info["command"] = jnp.array([[1.0, 0.0, 0.0]])
             renders = [render_env.state]
 
@@ -482,9 +378,9 @@ def main():
                 device_type=amp_device_type, dtype=amp_dtype, enabled=amp_enabled
             ):
                 obs = normalize_obs(obs)
-                xpos = normalize_xpos(xpos)
-                actions = actor(obs, xpos)
-            next_obs, _, done, _, next_xpos = render_env.step(actions.float())
+                xanchor = normalize_xanchor(xanchor)
+                actions = actor(obs, xanchor)
+            next_obs, _, done, _, next_xanchor = render_env.step(actions.float())
             if env_type == "mujoco_playground":
                 render_env.state.info["command"] = jnp.array([[1.0, 0.0, 0.0]])
             if i % 2 == 0:
@@ -495,13 +391,13 @@ def main():
             if done.any():
                 break
             obs = next_obs
-            xpos = next_xpos
+            xanchor = next_xanchor
 
         if env_type == "mujoco_playground":
             renders = render_env.render_trajectory(renders)
 
         obs_normalizer.train()
-        xpos_normalizer.train()
+        xanchor_normalizer.train()
         return renders
 
     policy_noise = args.policy_noise
@@ -524,13 +420,8 @@ def main():
             # Extract transition data from replay buffer
             observations = data["observations"]
             next_observations = data["next"]["observations"]
-            xpos = data["xposs"]
-            next_xpos = data["next"]["xposs"]
-
-            # check_tensor("observations", observations)
-            # check_tensor("next_observations", next_observations)
-            # check_tensor("xpos", xpos)
-            # check_tensor("next_xpos", next_xpos)
+            xanchor = data["xanchors"]
+            next_xanchor = data["next"]["xanchors"]
 
             if envs.asymmetric_obs:
                 critic_observations = data["critic_observations"]
@@ -543,11 +434,6 @@ def main():
             rewards = data["next"]["rewards"]
             dones = data["next"]["dones"].bool()
             truncations = data["next"]["truncations"].bool()
-
-            # check_tensor("critic_observations", critic_observations)
-            # check_tensor("next_critic_observations", next_critic_observations)
-            # check_tensor("actions", actions)
-            # check_tensor("rewards", rewards)
 
             # Determine bootstrap mask for value function targets
             if args.disable_bootstrap:
@@ -562,11 +448,8 @@ def main():
                 -noise_clip, noise_clip
             )
 
-            # Generate target actions using the main actor (not actor_detach) with added noise
-            # print(f"Next observations shape: {next_observations.shape}")
-            # print(f"Next xpos shape: {next_xpos.shape}")
             next_state_actions = (
-                actor(next_observations, next_xpos) + clipped_noise
+                actor(next_observations, next_xanchor) + clipped_noise
             ).clamp(action_low, action_high)
 
             # Compute target Q-values using target networks (no gradients)
@@ -582,14 +465,8 @@ def main():
                     )
                 )
 
-                # check_tensor("qf1_next_target_projected", qf1_next_target_projected)
-                # check_tensor("qf2_next_target_projected", qf2_next_target_projected)
-
                 qf1_next_target_value = qnet_target.get_value(qf1_next_target_projected)
                 qf2_next_target_value = qnet_target.get_value(qf2_next_target_projected)
-
-                # check_tensor("qf1_next_target_value", qf1_next_target_value)
-                # check_tensor("qf2_next_target_value", qf2_next_target_value)
 
                 # CLIPPED DOUBLE Q-LEARNING: Use minimum Q-value to reduce overestimation
                 if args.use_cdq:
@@ -608,13 +485,8 @@ def main():
                         qf2_next_target_projected,
                     )
 
-                # check_tensor("qf1_next_target_dist", qf1_next_target_dist)
-                # check_tensor("qf2_next_target_dist", qf2_next_target_dist)
-
             # Compute current Q-values for the actual state-action pairs
             qf1, qf2 = qnet(critic_observations, actions)
-            # check_tensor("qf1", qf1)
-            # check_tensor("qf2", qf2)
 
             # Compute distributional TD loss using cross-entropy
             # This trains the Q-networks to match the target distributions
@@ -626,15 +498,12 @@ def main():
             ).mean()
             qf_loss = qf1_loss + qf2_loss
 
-            # check_tensor("qf1_loss", qf1_loss)
-            # check_tensor("qf2_loss", qf2_loss)
-            # check_tensor("qf_loss", qf_loss)
-
         # Perform gradient descent on critic networks
         q_optimizer.zero_grad(set_to_none=True)
         scaler.scale(qf_loss).backward()
         scaler.unscale_(q_optimizer)
 
+        
         # Gradient clipping to prevent exploding gradients
         critic_grad_norm = torch.nn.utils.clip_grad_norm_(
             qnet.parameters(),
@@ -676,7 +545,7 @@ def main():
             # Compute Q-values for current states with actions from the main actor
             # Note: This uses the main 'actor' network, not 'actor_detach'
             qf1, qf2 = qnet(
-                critic_observations, actor(data["observations"], data["xposs"])
+                critic_observations, actor(data["observations"], data["xanchors"])
             )
 
             # Convert distributional Q-values to scalar estimates
@@ -696,7 +565,7 @@ def main():
         actor_optimizer.zero_grad(set_to_none=True)
         scaler.scale(actor_loss).backward()
         scaler.unscale_(actor_optimizer)
-
+        
         # Gradient clipping to prevent exploding gradients
         actor_grad_norm = torch.nn.utils.clip_grad_norm_(
             actor.parameters(),
@@ -717,7 +586,7 @@ def main():
         policy = torch.compile(policy, mode=mode)
         normalize_obs = torch.compile(normalize_obs, mode=mode)
         normalize_critic_obs = torch.compile(normalize_critic_obs, mode=mode)
-        normalize_xpos = torch.compile(normalize_xpos, mode=mode)
+        normalize_xanchor = torch.compile(normalize_xanchor, mode=mode)
 
     def frames_to_video_html(frames, fps=30):
         """
@@ -770,7 +639,7 @@ def main():
         obs, critic_obs = envs.reset_with_critic_obs()
         critic_obs = torch.as_tensor(critic_obs, device=device, dtype=torch.float)
     else:
-        obs, xpos = envs.reset()
+        obs, xanchor = envs.reset()
     pbar = tqdm.tqdm(total=args.total_timesteps, initial=global_step)
     dones = None
 
@@ -784,15 +653,15 @@ def main():
             device_type=amp_device_type, dtype=amp_dtype, enabled=amp_enabled
         ):
             if isinstance(obs, tuple):
-                obs, xpos = obs
+                obs, xanchor = obs
 
             norm_obs = normalize_obs(obs)
-            norm_xpos = normalize_xpos(xpos)
-            actions = policy(obs=norm_obs, xpos=norm_xpos, dones=dones)
+            norm_xanchor = normalize_xanchor(xanchor)
+            actions = policy(obs=norm_obs, xanchor=norm_xanchor, dones=dones)
 
         # ENVIRONMENT INTERACTION PHASE
         # Take actions in the environment and collect transition data
-        next_obs, rewards, dones, infos, next_xpos = envs.step(actions.float())
+        next_obs, rewards, dones, infos, next_xanchor = envs.step(actions.float())
         truncations = infos["time_outs"]  # Episodes ended due to time limits
 
         # Extract privileged observations for critic if using asymmetric observations
@@ -816,11 +685,11 @@ def main():
         transition = TensorDict(
             {
                 "observations": obs,
-                "xposs": xpos,
+                "xanchors": xanchor,
                 "actions": torch.as_tensor(actions, device=device, dtype=torch.float),
                 "next": {
                     "observations": true_next_obs,
-                    "xposs": next_xpos,
+                    "xanchors": next_xanchor,
                     "rewards": torch.as_tensor(
                         rewards, device=device, dtype=torch.float
                     ),
@@ -838,7 +707,7 @@ def main():
 
         # UPDATE OBSERVATIONS FOR NEXT ITERATION
         obs = next_obs
-        xpos = next_xpos
+        xanchor = next_xanchor
         if envs.asymmetric_obs:
             critic_obs = next_critic_obs
 
@@ -860,8 +729,8 @@ def main():
                 data["next"]["observations"] = normalize_obs(
                     data["next"]["observations"]
                 )
-                data["xposs"] = normalize_xpos(data["xposs"])
-                data["next"]["xposs"] = normalize_xpos(data["next"]["xposs"])
+                data["xanchors"] = normalize_xanchor(data["xanchors"])
+                data["next"]["xanchors"] = normalize_xanchor(data["next"]["xanchors"])
                 if envs.asymmetric_obs:
                     data["critic_observations"] = normalize_critic_obs(
                         data["critic_observations"]
@@ -910,14 +779,18 @@ def main():
                         "buffer_rewards": logs_dict["buffer_rewards"].mean(),
                         "env_rewards": rewards.mean(),
                     }
-
+                    
+                    # Collect detailed gradient statistics for actor (every 500 steps to avoid overhead)
+                    if use_wandb and global_step % 500 == 0:
+                        grad_stats = collect_gradient_stats(actor, "actor")
+                        logs.update(grad_stats)
 
                     # EVALUATION: Test current policy performance without exploration
                     if args.eval_interval > 0 and global_step % args.eval_interval == 0:
                         eval_avg_return, eval_avg_length = evaluate()
                         # Reset training environments after evaluation (environment-specific hack)
                         if env_type in ["humanoid_bench", "isaaclab"]:
-                            obs, xpos = envs.reset()
+                            obs, xanchor = envs.reset()
                         logs["eval_avg_return"] = eval_avg_return
                         logs["eval_avg_length"] = eval_avg_length
 
@@ -968,7 +841,7 @@ def main():
                     qnet,
                     qnet_target,
                     obs_normalizer,
-                    xpos_normalizer,
+                    xanchor_normalizer,
                     critic_obs_normalizer,
                     args,
                     f"models/{run_name}_{global_step}.pt",
@@ -983,7 +856,7 @@ def main():
         qnet,
         qnet_target,
         obs_normalizer,
-        xpos_normalizer,
+        xanchor_normalizer,
         critic_obs_normalizer,
         args,
         f"models/{run_name}_final.pt",

@@ -7,27 +7,22 @@ from fast_td3.actors.gnn.egnn import EGNN
 class ActorEGNN(nn.Module):
     def __init__(
         self,
-        n_obs: int,
-        n_act: int, 
         num_envs: int,
-        init_scale: float,
         hidden_dim: int,
         batch_size: int,
         device: torch.device,
         n_layers: int,
         act_fn: str,
+        env_name: str,
         robot: str = "h1",
         std_min: float = 0.05,
         std_max: float = 0.8,
-        n_node_feat: int = 2,
-        n_edge_feat: int = 0,
         attention: bool = False,
         coords_agg: str = "mean",
         normalize: bool = False,
         tanh: bool = False,
     ):
         super().__init__()
-        self.n_act = n_act
         self.n_envs = num_envs
 
         match act_fn:
@@ -42,10 +37,10 @@ class ActorEGNN(nn.Module):
 
         # EGNN for message passing
         self.egnn = EGNN(
-            in_node_nf=n_node_feat,
             hidden_nf=hidden_dim,
+            in_node_nf=2,
+            in_edge_nf=0,
             out_node_nf=1,
-            in_edge_nf=n_edge_feat,
             batch_size=batch_size,
             device=device,
             act_fn=act_fn,
@@ -55,6 +50,7 @@ class ActorEGNN(nn.Module):
             coords_agg=coords_agg,
             normalize=normalize,
             tanh=tanh,
+            env_name=env_name,
         )
 
         # Initialize noise parameters
@@ -65,15 +61,13 @@ class ActorEGNN(nn.Module):
         self.register_buffer("std_min", torch.as_tensor(std_min, device=device))
         self.register_buffer("std_max", torch.as_tensor(std_max, device=device))
 
-    def forward(self, obs, xpos) -> torch.Tensor:
-        h, x, edges, edge_attr = self.egnn.build_batched_egnn_input(obs, xpos)
-
-        result = self.egnn(h, x, edges, edge_attr)
+    def forward(self, obs, xanchor) -> torch.Tensor:
+        result = self.egnn(obs, xanchor)
 
         return result
 
     def explore(
-        self, obs: torch.Tensor, xpos: torch.Tensor, dones: torch.Tensor = None, deterministic: bool = False
+        self, obs: torch.Tensor, xanchor: torch.Tensor, dones: torch.Tensor = None, deterministic: bool = False
     ) -> torch.Tensor:
         # If dones is provided, resample noise for environments that are done
         if dones is not None and dones.sum() > 0:
@@ -88,7 +82,7 @@ class ActorEGNN(nn.Module):
             dones_view = dones.view(-1, 1) > 0
             self.noise_scales = torch.where(dones_view, new_scales, self.noise_scales)
 
-        act = self(obs, xpos)
+        act = self(obs, xanchor)
         if deterministic:
             return act
 
