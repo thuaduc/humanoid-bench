@@ -262,8 +262,7 @@ class HumanoidEnv(MujocoEnv, gym.utils.EzPickle):
         r = self.randomness
         if not (self._random_position or self._random_orientation):
             # Default randomness to all qpos
-            # init_qpos += self.np_random.uniform(-r, r, size=self.model.nq)
-            init_qpos = init_qpos
+            init_qpos += self.np_random.uniform(-r, r, size=self.model.nq)
         else:
             # reset robot to random position
             if self._random_position:
