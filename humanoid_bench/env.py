@@ -269,7 +269,7 @@ class HumanoidEnv(MujocoEnv, gym.utils.EzPickle):
                 init_qpos[:2] += self.np_random.uniform(-10, 10, size=2)
             # rotate robot randomly
             if self._random_orientation:
-                init_qpos[3:7] = euler_to_quat(np.array([0.0, 0.0, self.np_random.uniform(-3.14, 3.14)]))
+                init_qpos[3:7] = euler_to_quat(np.array([0.0, 0.0, self.np_random.uniform(-np.pi, np.pi)]))
         self.set_state(init_qpos, init_qvel)
 
         # Task-specific reset and return observations
