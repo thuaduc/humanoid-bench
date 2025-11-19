@@ -49,7 +49,7 @@ def main():
         type=str,
         default="egnn",
         help="The kind of actor to use.",
-        choices=["egnn", "mlp"],
+        choices=["egnn", "egnn_vn", "mlp"],
     )
     parser.add_argument("--env_name", type=str, default="h1-stand-v0")
     parser.add_argument(

@@ -227,11 +227,20 @@ def create_actor(
     """
     from fast_td3.actors import (
         ActorEGNN,
+        ActorEGNNVN,
         Actor,
     )
     
     if actor_type == "egnn":
         return ActorEGNN(
+            num_envs=num_envs,
+            batch_size=batch_size,
+            device=device,
+            env_name=env_name,
+            **model_kwargs,
+        )
+    elif actor_type == "egnn_vn":
+        return ActorEGNNVN(
             num_envs=num_envs,
             batch_size=batch_size,
             device=device,
