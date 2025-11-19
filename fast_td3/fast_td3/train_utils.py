@@ -227,11 +227,20 @@ def create_actor(
     """
     from fast_td3.actors import (
         ActorEGNN,
+        ActorEGNN_V2,
         Actor,
     )
     
     if actor_type == "egnn":
         return ActorEGNN(
+            num_envs=num_envs,
+            batch_size=batch_size,
+            device=device,
+            env_name=env_name,
+            **model_kwargs,
+        )
+    elif actor_type == "egnn_v2":
+        return ActorEGNN_V2(
             num_envs=num_envs,
             batch_size=batch_size,
             device=device,
@@ -249,5 +258,5 @@ def create_actor(
         )
     else:
         raise ValueError(
-            f"Unsupported actor type: {actor_type}. Supported types are: egnn, mlp."
+            f"Unsupported actor type: {actor_type}. Supported types are: egnn, egnn_v2, mlp."
         )

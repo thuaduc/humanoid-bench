@@ -105,6 +105,14 @@ class BaseArgs:
     """the weight decay of the optimizer"""
     save_interval: int = 5000
     """the interval to save the model"""
+    actor_type: str = "mlp"
+    """the type of actor to use: 'mlp', 'egnn', or 'egnn_v2'"""
+    actor_n_layers: int = 3
+    """number of layers for EGNN/EGNN_V2 actors"""
+    actor_act_fn: str = "silu"
+    """activation function for EGNN/EGNN_V2 actors: 'silu', 'relu', or 'leaky_relu'"""
+    robot: str = "h1"
+    """robot type for EGNN/EGNN_V2 actors: 'h1' or 'g1'"""
 
 
 def get_args():

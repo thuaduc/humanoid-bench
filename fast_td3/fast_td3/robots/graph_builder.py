@@ -45,6 +45,51 @@ class GraphBuilder:
 
         return h, x, h_object, x_object
 
+    @torch.compile(dynamic=True)
+    def generate_input_v2(self, obs: torch.tensor, xanchor: torch.tensor):
+        """
+        Generate input for EGNN v2 with separate joint and object graphs.
+        
+        This creates disjoint graphs where:
+        - Joint graph: Contains robot joints with position and velocity features
+        - Object graph: Contains object/root information
+        
+        Node indexing follows batch structure:
+        - For batch_size=2, num_joints=19:
+          - Batch 0 joints: indices 0-18
+          - Batch 1 joints: indices 19-37
+          - Batch 0 object: index 38
+          - Batch 1 object: index 39
+        
+        Returns:
+            h_joints: Joint node features [batch*num_joints, 2] (velocity, position)
+            x_joints: Joint node coordinates [batch*num_joints, 3]
+            h_objects: Object node features [batch, 6]
+            x_objects: Object node coordinates [batch, 3]
+        """
+        assert obs.shape[1] == 51, f"obs shape: {obs.shape}"
+        assert xanchor.shape[1] == 20, f"xanchor shape: {xanchor.shape}"
+        
+        batch_size = obs.shape[0]
+        
+        # Extract joint features - same as v1
+        joint_pos = obs[:, 7:26].reshape(-1, 1)  # [batch*19, 1]
+        joint_vel = obs[:, 32:].reshape(-1, 1)  # [batch*19, 1]
+        h_joints = torch.cat([joint_vel, joint_pos], dim=1)  # [batch*19, 2]
+        
+        # Joint coordinates relative to root
+        x_joints = (xanchor[:, 1:] - xanchor[:, [0]]).reshape(-1, 3)  # [batch*19, 3]
+        
+        # Extract object/root features
+        # obs[:, 26:32] contains: [root_height, root_orient_z, root_orient_w, 
+        #                          root_lin_vel_x, root_lin_vel_y, root_lin_vel_z]
+        h_objects = obs[:, 26:32]  # [batch, 6]
+        
+        # Object coordinates (root position)
+        x_objects = xanchor[:, 0]  # [batch, 3]
+        
+        return h_joints, x_joints, h_objects, x_objects
+
 
 
     def visualize_graph(
