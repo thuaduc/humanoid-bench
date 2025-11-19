@@ -2,9 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from fast_td3.actors.gnn.egnn import EGNN
+from fast_td3.actors.gnn.egnn_v2 import EGNN_V2
 
-class ActorEGNN(nn.Module):
+
+class ActorEGNN_V2(nn.Module):
+    """
+    Actor using EGNN v2 with separate joint and object graphs.
+    """
     def __init__(
         self,
         num_envs: int,
@@ -27,23 +31,24 @@ class ActorEGNN(nn.Module):
 
         match act_fn:
             case "leaky_relu":
-                act_fn = nn.LeakyReLU()
+                act_fn_module = nn.LeakyReLU()
             case "silu":
-                act_fn = nn.SiLU()
+                act_fn_module = nn.SiLU()
             case "relu":
-                act_fn = nn.ReLU()
+                act_fn_module = nn.ReLU()
             case _:
                 raise ValueError(f"Unknown activation function: {act_fn}")
 
-        # EGNN for message passing
-        self.egnn = EGNN(
+        # EGNN v2 for message passing with cross-graph aggregation
+        self.egnn = EGNN_V2(
+            in_joint_nf=2,      # Joint features: velocity + position
+            in_object_nf=6,     # Object features: root info
             hidden_nf=hidden_dim,
-            in_node_nf=2,
-            in_edge_nf=0,
-            out_node_nf=1,
+            out_node_nf=1,      # Output 1 action per joint
+            in_edge_nf=0,       # No edge features
             batch_size=batch_size,
             device=device,
-            act_fn=act_fn,
+            act_fn=act_fn_module,
             n_layers=n_layers,
             robot=robot,
             attention=attention,
@@ -63,7 +68,6 @@ class ActorEGNN(nn.Module):
 
     def forward(self, obs, xanchor) -> torch.Tensor:
         result = self.egnn(obs, xanchor)
-
         return result
 
     def explore(
@@ -88,4 +92,3 @@ class ActorEGNN(nn.Module):
 
         noise = torch.randn_like(act) * self.noise_scales
         return act + noise
-

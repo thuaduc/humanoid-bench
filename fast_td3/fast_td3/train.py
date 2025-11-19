@@ -27,7 +27,7 @@ from tensordict import TensorDict, from_module
 
 from fast_td3_utils import EmpiricalNormalization, SimpleReplayBuffer, save_params
 from hyperparams import get_args
-from fast_td3 import Actor, ActorEGNN, ActorEGNN_V2, Critic
+from fast_td3 import Actor, Critic
 
 torch.set_float32_matmul_precision("high")
 
@@ -135,81 +135,22 @@ def main():
         obs_normalizer = nn.Identity()
         critic_obs_normalizer = nn.Identity()
 
-    # Create actor based on actor_type
-    if args.actor_type == "mlp":
-        actor = Actor(
-            n_obs=n_obs,
-            n_act=n_act,
-            num_envs=args.num_envs,
-            device=device,
-            init_scale=args.init_scale,
-            hidden_dim=args.actor_hidden_dim,
-            std_min=args.std_min,
-            std_max=args.std_max,
-        )
-        actor_detach = Actor(
-            n_obs=n_obs,
-            n_act=n_act,
-            num_envs=args.num_envs,
-            device=device,
-            init_scale=args.init_scale,
-            hidden_dim=args.actor_hidden_dim,
-            std_min=args.std_min,
-            std_max=args.std_max,
-        )
-    elif args.actor_type == "egnn":
-        actor = ActorEGNN(
-            num_envs=args.num_envs,
-            hidden_dim=args.actor_hidden_dim,
-            batch_size=args.batch_size // args.num_envs,
-            device=device,
-            n_layers=args.actor_n_layers,
-            act_fn=args.actor_act_fn,
-            env_name=args.env_name,
-            robot=args.robot,
-            std_min=args.std_min,
-            std_max=args.std_max,
-        )
-        actor_detach = ActorEGNN(
-            num_envs=args.num_envs,
-            hidden_dim=args.actor_hidden_dim,
-            batch_size=args.batch_size // args.num_envs,
-            device=device,
-            n_layers=args.actor_n_layers,
-            act_fn=args.actor_act_fn,
-            env_name=args.env_name,
-            robot=args.robot,
-            std_min=args.std_min,
-            std_max=args.std_max,
-        )
-    elif args.actor_type == "egnn_v2":
-        actor = ActorEGNN_V2(
-            num_envs=args.num_envs,
-            hidden_dim=args.actor_hidden_dim,
-            batch_size=args.batch_size // args.num_envs,
-            device=device,
-            n_layers=args.actor_n_layers,
-            act_fn=args.actor_act_fn,
-            env_name=args.env_name,
-            robot=args.robot,
-            std_min=args.std_min,
-            std_max=args.std_max,
-        )
-        actor_detach = ActorEGNN_V2(
-            num_envs=args.num_envs,
-            hidden_dim=args.actor_hidden_dim,
-            batch_size=args.batch_size // args.num_envs,
-            device=device,
-            n_layers=args.actor_n_layers,
-            act_fn=args.actor_act_fn,
-            env_name=args.env_name,
-            robot=args.robot,
-            std_min=args.std_min,
-            std_max=args.std_max,
-        )
-    else:
-        raise ValueError(f"Unknown actor type: {args.actor_type}")
-    
+    actor = Actor(
+        n_obs=n_obs,
+        n_act=n_act,
+        num_envs=args.num_envs,
+        device=device,
+        init_scale=args.init_scale,
+        hidden_dim=args.actor_hidden_dim,
+    )
+    actor_detach = Actor(
+        n_obs=n_obs,
+        n_act=n_act,
+        num_envs=args.num_envs,
+        device=device,
+        init_scale=args.init_scale,
+        hidden_dim=args.actor_hidden_dim,
+    )
     # Copy params to actor_detach without grad
     from_module(actor).data.to_module(actor_detach)
     policy = actor_detach.explore
@@ -260,9 +201,6 @@ def main():
 
     policy_noise = args.policy_noise
     noise_clip = args.noise_clip
-    
-    # Helper to handle xanchor for different environment and actor types
-    uses_xanchor = env_type == "humanoid_bench" and args.actor_type in ["egnn", "egnn_v2"]
 
     def evaluate():
         obs_normalizer.eval()
@@ -272,34 +210,19 @@ def main():
         done_masks = torch.zeros(num_eval_envs, dtype=torch.bool, device=device)
 
         if env_type == "isaaclab":
-            obs_reset = eval_envs.reset(random_start_init=False)
+            obs = eval_envs.reset(random_start_init=False)
         else:
-            obs_reset = eval_envs.reset()
-        
-        # Handle xanchor for humanoid_bench
-        if env_type == "humanoid_bench":
-            obs, xanchor = obs_reset
-        else:
-            obs = obs_reset
-            xanchor = None
+            obs = eval_envs.reset()
 
         # Run for a fixed number of steps
         for _ in range(eval_envs.max_episode_steps):
             with torch.no_grad(), autocast(
                 device_type=amp_device_type, dtype=amp_dtype, enabled=amp_enabled
             ):
-                obs_norm = normalize_obs(obs)
-                if uses_xanchor:
-                    actions = actor(obs_norm, xanchor)
-                else:
-                    actions = actor(obs_norm)
+                obs = normalize_obs(obs)
+                actions = actor(obs)
 
-            step_result = eval_envs.step(actions.float())
-            if env_type == "humanoid_bench":
-                next_obs, rewards, dones, _, xanchor = step_result
-            else:
-                next_obs, rewards, dones, _ = step_result
-                
+            next_obs, rewards, dones, _ = eval_envs.step(actions.float())
             episode_returns = torch.where(
                 ~done_masks, episode_returns + rewards, episode_returns
             )
@@ -319,8 +242,7 @@ def main():
 
         # Quick rollout for rendering
         if env_type == "humanoid_bench":
-            obs_reset = render_env.reset()
-            obs, xanchor = obs_reset
+            obs = render_env.reset()
             renders = [render_env.render()]
         elif env_type == "isaaclab":
             raise NotImplementedError(
@@ -328,25 +250,15 @@ def main():
             )
         else:
             obs = render_env.reset()
-            xanchor = None
             render_env.state.info["command"] = jnp.array([[1.0, 0.0, 0.0]])
             renders = [render_env.state]
         for i in range(render_env.max_episode_steps):
             with torch.no_grad(), autocast(
                 device_type=amp_device_type, dtype=amp_dtype, enabled=amp_enabled
             ):
-                obs_norm = normalize_obs(obs)
-                if uses_xanchor:
-                    actions = actor(obs_norm, xanchor)
-                else:
-                    actions = actor(obs_norm)
-            
-            step_result = render_env.step(actions.float())
-            if env_type == "humanoid_bench":
-                next_obs, _, done, _, xanchor = step_result
-            else:
-                next_obs, _, done, _ = step_result
-                
+                obs = normalize_obs(obs)
+                actions = actor(obs)
+            next_obs, _, done, _ = render_env.step(actions.float())
             if env_type == "mujoco_playground":
                 render_env.state.info["command"] = jnp.array([[1.0, 0.0, 0.0]])
             if i % 2 == 0:
