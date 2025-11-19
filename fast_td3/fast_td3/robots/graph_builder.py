@@ -30,21 +30,36 @@ class GraphBuilder:
     @torch.compile(dynamic=True)
     def generate_input(self, obs: torch.tensor, xanchor: torch.tensor):
         """Generate input with root information as global context."""
-        assert obs.shape[1] == 51, f"obs shape: {obs.shape}"
-        assert xanchor.shape[1] == 20, f"xanchor shape: {xanchor.shape}"
+        if isinstance(self.robot, H1):
+            assert obs.shape[1] == 51, f"obs shape: {obs.shape}"
+            assert xanchor.shape[1] == 20, f"xanchor shape: {xanchor.shape}"
 
-        # Extract joint features
-        joint_pos = obs[:, 7:26].reshape(-1, 1)  # [batch*19, 1]
-        joint_vel = obs[:, 32:].reshape(-1, 1)  # [batch*19, 1]
-        h = torch.cat([joint_vel, joint_pos], dim=1)
-        x = (xanchor[:, 1:] - xanchor[:, [0]]).reshape(-1, 3)  # [batch*19, 3]
+            # Extract joint features
+            joint_pos = obs[:, 7:26].reshape(-1, 1)  # [batch*19, 1]
+            joint_vel = obs[:, 32:].reshape(-1, 1)  # [batch*19, 1]
+            h = torch.cat([joint_vel, joint_pos], dim=1)
+            x = (xanchor[:, 1:] - xanchor[:, [0]]).reshape(-1, 3)  # [batch*19, 3]
 
-        # Extract root/object features
-        h_object = obs[:, 26:32]
-        x_object = xanchor[:, [0]].reshape(-1, 3)  # [batch, 3]yY
+            # Extract root/object features
+            h_object = obs[:, 26:32]
+            x_object = xanchor[:, [0]].reshape(-1, 3)  # [batch, 3]yY
 
-        return h, x, h_object, x_object
+            return h, x, h_object, x_object
+        elif isinstance(self.robot, G1):
+            assert obs.shape[1] == 87, f"obs shape: {obs.shape}"
+            assert xanchor.shape[1] == 38, f"xanchor shape: {xanchor.shape}"
 
+            # Extract joint features
+            joint_pos = obs[:, 7:44].reshape(-1, 1)
+            joint_vel = obs[:, 49:].reshape(-1, 1)
+            h = torch.cat([joint_vel, joint_pos], dim=1)
+            x = (xanchor[:, 1:] - xanchor[:, [0]]).reshape(-1, 3)
+
+            # Extract root/object features
+            h_object = obs[:, 44:49]
+            x_object = xanchor[:, [0]].reshape(-1, 3)
+
+            return h, x, h_object, x_object
 
 
     def visualize_graph(
