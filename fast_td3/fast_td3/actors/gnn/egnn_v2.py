@@ -161,21 +161,21 @@ class EGNN_V2(nn.Module):
         
         return actions.view(current_batch_size, self.num_joints)
     
-    def generate_joint_edges(self, batch_size: int, device="cuda"):
+    def generate_joint_edges(self, batch_size: int):
         """Generate edge indices for the joint graph across batches."""
         src, dst = zip(*self.graph_builder.robot.joint_connections)
         
-        src = torch.tensor(src, dtype=torch.long, device=device)
-        dst = torch.tensor(dst, dtype=torch.long, device=device)
+        src = torch.tensor(src, dtype=torch.long, device=self.device)
+        dst = torch.tensor(dst, dtype=torch.long, device=self.device)
         
         # Create batch offsets and expand edges
-        offsets = torch.arange(batch_size, device=device) * self.num_joints
+        offsets = torch.arange(batch_size, device=self.device) * self.num_joints
         src_batch = (src.unsqueeze(0) + offsets.unsqueeze(1)).flatten()
         dst_batch = (dst.unsqueeze(0) + offsets.unsqueeze(1)).flatten()
         
         return torch.stack([src_batch, dst_batch])
     
-    def generate_cross_edges(self, batch_size: int, device="cuda"):
+    def generate_cross_edges(self, batch_size: int):
         """
         Generate unidirectional edge indices from objects to joints.
         
@@ -201,8 +201,8 @@ class EGNN_V2(nn.Module):
                 src_list.append(object_idx)  # Source: object
                 dst_list.append(joint_idx)    # Destination: joint
         
-        src = torch.tensor(src_list, dtype=torch.long, device=device)
-        dst = torch.tensor(dst_list, dtype=torch.long, device=device)
+        src = torch.tensor(src_list, dtype=torch.long, device=self.device)
+        dst = torch.tensor(dst_list, dtype=torch.long, device=self.device)
         
         return torch.stack([src, dst])
     
@@ -211,7 +211,7 @@ class EGNN_V2(nn.Module):
         if current_batch_size in self._joint_edges_cache:
             return self._joint_edges_cache[current_batch_size]
         
-        edges = self.generate_joint_edges(current_batch_size, self.device)
+        edges = self.generate_joint_edges(current_batch_size)
         self._joint_edges_cache[current_batch_size] = edges
         return edges
     
@@ -220,6 +220,6 @@ class EGNN_V2(nn.Module):
         if current_batch_size in self._cross_edges_cache:
             return self._cross_edges_cache[current_batch_size]
         
-        edges = self.generate_cross_edges(current_batch_size, self.device)
+        edges = self.generate_cross_edges(current_batch_size)
         self._cross_edges_cache[current_batch_size] = edges
         return edges
