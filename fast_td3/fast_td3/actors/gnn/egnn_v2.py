@@ -143,14 +143,8 @@ class EGNN_V2(nn.Module):
         # Step 2: Cross-graph message passing from objects to joints
         # Combine joints and objects into a single graph for E_GCL
         # Need to expand objects to [batch*1, hidden] and [batch*1, 3]
-        h_objects_expanded = h_objects  # [batch, hidden]
-        x_objects_expanded = x_objects  # [batch, 3]
-        
-        # Concatenate joint and object nodes
-        # Joints: indices 0 to batch*num_joints-1
-        # Objects: indices batch*num_joints to batch*num_joints + batch - 1
-        h_combined = torch.cat([h_joints, h_objects_expanded], dim=0)
-        x_combined = torch.cat([x_joints, x_objects_expanded], dim=0)
+        h_combined = torch.cat([h_joints, h_objects], dim=0)
+        x_combined = torch.cat([x_joints, x_objects], dim=0)
         
         # Get cross-graph edges (object → joint, unidirectional)
         cross_edges = self.get_cached_cross_edges(current_batch_size)
