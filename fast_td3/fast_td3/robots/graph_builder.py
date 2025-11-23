@@ -27,7 +27,6 @@ class GraphBuilder:
         self.batch_size = batch_size
         self.num_edges = self.robot.joint_connections.__len__()
 
-    @torch.compile(dynamic=True)
     def generate_input(self, obs: torch.tensor, xanchor: torch.tensor):
         """Generate input with root information as global context."""
         assert obs.shape[1] == 51, f"obs shape: {obs.shape}"
@@ -41,10 +40,30 @@ class GraphBuilder:
 
         # Extract root/object features
         h_object = obs[:, 26:32]
-        x_object = xanchor[:, [0]].reshape(-1, 3)  # [batch, 3]yY
+        x_object = xanchor[:, [0]].reshape(-1, 3)  # [batch, 3]
 
         return h, x, h_object, x_object
 
+    def generate_input_object(self, obs: torch.tensor, xanchor: torch.tensor):
+        assert xanchor.shape[1] == 21, f"xanchor shape: {xanchor.shape}"
+        x_joints = (xanchor[:, 1:20] - xanchor[:, [0]]).reshape(-1, 3)
+        x_objects = (xanchor[:, [0, 20]] - xanchor[:, [0]]).reshape(-1, 3)
+
+        assert obs.shape[1] == 64, f"obs shape: {obs.shape}"
+        assert xanchor.shape[1] == 21, f"xanchor shape: {xanchor.shape}"
+        h_joints = torch.cat([
+            obs[:, 7:26].reshape(-1, 1),
+            obs[:, 39:58].reshape(-1, 1),
+        ], dim=1)
+        
+        h_objects = torch.cat([
+            obs[:, 33:39],
+            obs[:, 58:64]
+        ], dim=0)
+
+        # print(f"hjoints {h_joints.shape} xjoints{x_joints.shape} hobjects{h_objects.shape} xobjects{x_objects.shape}")
+    
+        return h_joints, x_joints, h_objects, x_objects
 
 
     def visualize_graph(

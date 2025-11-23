@@ -39,17 +39,20 @@ class EGNN_V2(nn.Module):
         :param out_node_nf: Number of features for 'h' at the output
         :param in_edge_nf: Number of features for the edge features
         :param device: Device (e.g. 'cpu', 'cuda:0',...)
-        :param batch_size: Batch size
         :param act_fn: Non-linearity
-        :param n_layers: Number of layers for message passing
-        :param robot: Robot type ('h1' or 'g1')
-        :param env_name: Environment name
-        :param residual: Use residual connections
+        :param n_layers: Number of layer for the EGNN
+        :param residual: Use residual connections, we recommend not changing this one
         :param attention: Whether using attention or not
-        :param normalize: Normalizes the coordinate messages
-        :param tanh: Sets a tanh activation at the output of phi_x
-        :param coords_agg: Coordinate aggregation method ('sum' or 'mean')
+        :param normalize: Normalizes the coordinates messages such that:
+                    instead of: x^{l+1}_i = x^{l}_i + Σ(x_i - x_j)phi_x(m_ij)
+                    we get:     x^{l+1}_i = x^{l}_i + Σ(x_i - x_j)phi_x(m_ij)/||x_i - x_j||
+                    We noticed it may help in the stability or generalization in some future works.
+                    We didn't use it in our paper.
+        :param tanh: Sets a tanh activation function at the output of phi_x(m_ij). I.e. it bounds the output of
+                        phi_x(m_ij) which definitely improves in stability but it may decrease in accuracy.
+                        We didn't use it in our paper.
         """
+
         super(EGNN_V2, self).__init__()
         self.in_edge_nf = in_edge_nf
         self.hidden_nf = hidden_nf
@@ -100,8 +103,7 @@ class EGNN_V2(nn.Module):
         
         # Input embeddings
         self.joint_embedding_in = nn.Sequential(
-            nn.Linear(in_joint_nf, self.hidden_nf), 
-            act_fn
+            nn.Linear(in_joint_nf, self.hidden_nf), act_fn
         )
         
         self.object_embedding = nn.Sequential(
@@ -109,47 +111,36 @@ class EGNN_V2(nn.Module):
             act_fn
         )
         
-        # Output projection
         self.joint_embedding_out = nn.Sequential(
             nn.Linear(self.hidden_nf, out_node_nf),
             nn.Tanh(),
         )
         
         self.to(self.device)
-    
+
     def forward(self, obs: torch.Tensor, xanchor: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass:
-        1. Message passing within joint graph (L rounds)
-        2. Cross-graph message passing from objects to joints (1 layer)
-        3. Output actions
-        """
         current_batch_size = obs.shape[0]
+        joint_edges = self.get_cached_joint_edges(current_batch_size)
         
-        # Get input features and coordinates using existing generate_input
-        h_joints, x_joints, h_objects, x_objects = self.graph_builder.generate_input(obs, xanchor)
-        
+        if not self.has_mixed_node_types:
+            h_joints, x_joints, h_objects, x_objects = self.graph_builder.generate_input(obs, xanchor)
+        else:
+            h_joints, x_joints, h_objects, x_objects = self.graph_builder.generate_input_object(obs, xanchor)
+
         # Embed joint and object features
         h_joints = self.joint_embedding_in(h_joints)  # [batch*num_joints, hidden]
         h_objects = self.object_embedding(h_objects)  # [batch, hidden]
-        
-        # Get joint graph edges
-        joint_edges = self.get_cached_joint_edges(current_batch_size)
         
         # Step 1: Message passing within joint graph (L rounds)
         for layer in self.joint_layers:
             h_joints, x_joints, _ = layer(h=h_joints, edge_index=joint_edges, coord=x_joints)
         
         # Step 2: Cross-graph message passing from objects to joints
-        # Combine joints and objects into a single graph for E_GCL
-        # Need to expand objects to [batch*1, hidden] and [batch*1, 3]
         h_combined = torch.cat([h_joints, h_objects], dim=0)
         x_combined = torch.cat([x_joints, x_objects], dim=0)
         
         # Get cross-graph edges (object → joint, unidirectional)
         cross_edges = self.get_cached_cross_edges(current_batch_size)
-        
-        # Apply cross-graph E_GCL layer
         h_combined, x_combined, _ = self.cross_layer(h=h_combined, edge_index=cross_edges, coord=x_combined)
         
         # Extract updated joint features and coordinates
@@ -158,52 +149,50 @@ class EGNN_V2(nn.Module):
         
         # Step 3: Output projection
         actions = self.joint_embedding_out(h_joints)
-        
+
         return actions.view(current_batch_size, self.num_joints)
-    
-    def generate_joint_edges(self, batch_size: int):
-        """Generate edge indices for the joint graph across batches."""
+
+    def generate_joint_edges(self, batch_size: int, device="cuda"):
         src, dst = zip(*self.graph_builder.robot.joint_connections)
-        
-        src = torch.tensor(src, dtype=torch.long, device=self.device)
-        dst = torch.tensor(dst, dtype=torch.long, device=self.device)
-        
+
+        src = torch.tensor(src, dtype=torch.long, device=device)
+        dst = torch.tensor(dst, dtype=torch.long, device=device)
+
         # Create batch offsets and expand edges
-        offsets = torch.arange(batch_size, device=self.device) * self.num_joints
+        offsets = torch.arange(batch_size, device=device) * self.num_joints
         src_batch = (src.unsqueeze(0) + offsets.unsqueeze(1)).flatten()
         dst_batch = (dst.unsqueeze(0) + offsets.unsqueeze(1)).flatten()
-        
+
         return torch.stack([src_batch, dst_batch])
     
-    def generate_cross_edges(self, batch_size: int):
+    def generate_cross_edges(self, batch_size: int, num_objs: int = 1):
         """
         Generate unidirectional edge indices from objects to joints.
         
         For each batch:
-        - Object index: batch*num_joints + batch_idx
+        - Object indices: start at batch*num_joints and continue for num_objs
         - Joint indices: batch_idx*num_joints to (batch_idx+1)*num_joints - 1
         
-        Creates edges: object → all joints in the same batch
+        Creates edges: each joint → all objects in the same batch
+        
+        Example with batch_size=1, num_joints=5, num_objs=2:
+        - src: [0,0,1,1,2,2,3,3,4,4] (each joint appears num_objs times)
+        - dst: [5,6,5,6,5,6,5,6,5,6] (cycle through all objects)
         """
         num_joints = self.num_joints
         
-        # For each batch, create edges from the object to all joints
-        src_list = []
-        dst_list = []
+        # Create source indices: each joint repeated num_objs times
+        src = torch.repeat_interleave(
+            torch.arange(batch_size * num_joints, dtype=torch.long, device=self.device),
+            num_objs
+        )
         
-        for batch_idx in range(batch_size):
-            object_idx = batch_size * num_joints + batch_idx
-            joint_start = batch_idx * num_joints
-            joint_end = (batch_idx + 1) * num_joints
-            
-            # Create edges from object to all joints in this batch
-            for joint_idx in range(joint_start, joint_end):
-                src_list.append(object_idx)  # Source: object
-                dst_list.append(joint_idx)    # Destination: joint
-        
-        src = torch.tensor(src_list, dtype=torch.long, device=self.device)
-        dst = torch.tensor(dst_list, dtype=torch.long, device=self.device)
-        
+        # Create destination indices: tile object indices for all joints
+        # Object indices start at batch_size * num_joints
+        object_start_idx = batch_size * num_joints
+        object_indices = torch.arange(object_start_idx, object_start_idx + num_objs, dtype=torch.long, device=self.device)
+        dst = object_indices.repeat(batch_size * num_joints)
+
         return torch.stack([src, dst])
     
     def get_cached_joint_edges(self, current_batch_size: int):
@@ -220,6 +209,6 @@ class EGNN_V2(nn.Module):
         if current_batch_size in self._cross_edges_cache:
             return self._cross_edges_cache[current_batch_size]
         
-        edges = self.generate_cross_edges(current_batch_size)
+        edges = self.generate_cross_edges(current_batch_size, 2 if self.has_mixed_node_types else 1)
         self._cross_edges_cache[current_batch_size] = edges
         return edges
