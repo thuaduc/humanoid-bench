@@ -115,6 +115,8 @@ class EGNN_V2(nn.Module):
             nn.Linear(self.hidden_nf, out_node_nf),
             nn.Tanh(),
         )
+        nn.init.normal_(self.joint_embedding_out[0].weight, 0.0, 0.01)
+        nn.init.constant_(self.joint_embedding_out[0].bias, 0.0)
         
         self.to(self.device)
 
@@ -152,7 +154,7 @@ class EGNN_V2(nn.Module):
 
         return actions.view(current_batch_size, self.num_joints)
 
-    def generate_joint_edges(self, batch_size: int, device="cuda"):
+    def generate_joint_edges(self, batch_size: int, device: torch.device):
         src, dst = zip(*self.graph_builder.robot.joint_connections)
 
         src = torch.tensor(src, dtype=torch.long, device=device)
@@ -165,32 +167,16 @@ class EGNN_V2(nn.Module):
 
         return torch.stack([src_batch, dst_batch])
     
-    def generate_cross_edges(self, batch_size: int, num_objs: int = 1):
-        """
-        Generate unidirectional edge indices from objects to joints.
-        
-        For each batch:
-        - Object indices: start at batch*num_joints and continue for num_objs
-        - Joint indices: batch_idx*num_joints to (batch_idx+1)*num_joints - 1
-        
-        Creates edges: each joint → all objects in the same batch
-        
-        Example with batch_size=1, num_joints=5, num_objs=2:
-        - src: [0,0,1,1,2,2,3,3,4,4] (each joint appears num_objs times)
-        - dst: [5,6,5,6,5,6,5,6,5,6] (cycle through all objects)
-        """
+    def generate_cross_edges(self, batch_size: int, num_objs: int, device: torch.device):
         num_joints = self.num_joints
         
-        # Create source indices: each joint repeated num_objs times
         src = torch.repeat_interleave(
-            torch.arange(batch_size * num_joints, dtype=torch.long, device=self.device),
+            torch.arange(batch_size * num_joints, dtype=torch.long, device=device),
             num_objs
         )
         
-        # Create destination indices: tile object indices for all joints
-        # Object indices start at batch_size * num_joints
         object_start_idx = batch_size * num_joints
-        object_indices = torch.arange(object_start_idx, object_start_idx + num_objs, dtype=torch.long, device=self.device)
+        object_indices = torch.arange(object_start_idx, object_start_idx + num_objs, dtype=torch.long, device=device)
         dst = object_indices.repeat(batch_size * num_joints)
 
         return torch.stack([src, dst])
@@ -200,7 +186,7 @@ class EGNN_V2(nn.Module):
         if current_batch_size in self._joint_edges_cache:
             return self._joint_edges_cache[current_batch_size]
         
-        edges = self.generate_joint_edges(current_batch_size)
+        edges = self.generate_joint_edges(current_batch_size, self.device)
         self._joint_edges_cache[current_batch_size] = edges
         return edges
     
@@ -209,6 +195,6 @@ class EGNN_V2(nn.Module):
         if current_batch_size in self._cross_edges_cache:
             return self._cross_edges_cache[current_batch_size]
         
-        edges = self.generate_cross_edges(current_batch_size, 2 if self.has_mixed_node_types else 1)
+        edges = self.generate_cross_edges(current_batch_size, 2 if self.has_mixed_node_types else 1, self.device)
         self._cross_edges_cache[current_batch_size] = edges
         return edges

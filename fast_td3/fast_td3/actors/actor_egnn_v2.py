@@ -24,8 +24,6 @@ class ActorEGNN_V2(nn.Module):
         tanh: bool = False,
     ):
         super().__init__()
-        self.n_envs = num_envs
-
         match act_fn:
             case "leaky_relu":
                 act_fn = nn.LeakyReLU()
@@ -40,7 +38,7 @@ class ActorEGNN_V2(nn.Module):
         self.egnn = EGNN_V2(
             hidden_nf=hidden_dim,
             in_joint_nf=2,
-            in_object_nf=6,
+            in_object_nf=10 if env_name == "h1-balance_simple-v0" else 6,
             in_edge_nf=0,
             out_node_nf=1,
             batch_size=batch_size,
@@ -60,8 +58,10 @@ class ActorEGNN_V2(nn.Module):
             torch.rand(num_envs, 1, device=device) * (std_max - std_min) + std_min
         )
         self.register_buffer("noise_scales", noise_scales)
+        
         self.register_buffer("std_min", torch.as_tensor(std_min, device=device))
         self.register_buffer("std_max", torch.as_tensor(std_max, device=device))
+        self.n_envs = num_envs
 
     def forward(self, obs, xanchor) -> torch.Tensor:
         result = self.egnn(obs, xanchor)

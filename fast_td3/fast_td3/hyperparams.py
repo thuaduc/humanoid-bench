@@ -69,7 +69,7 @@ class BaseArgs:
     """the minimum value of the support"""
     v_max: float = 250.0
     """the maximum value of the support"""
-    critic_hidden_dim: int = 1024
+    critic_hidden_dim: int = 512
     """the hidden dimension of the critic network"""
     actor_hidden_dim: int = 512
     """the hidden dimension of the actor network"""
@@ -89,7 +89,7 @@ class BaseArgs:
     """the maximum gradient norm"""
     amp: bool = True
     """whether to use amp"""
-    amp_dtype: str = "f16"
+    amp_dtype: str = "bf16"
     """the dtype of the amp"""
     disable_bootstrap: bool = False
     """Whether to disable bootstrap in the critic learning"""
