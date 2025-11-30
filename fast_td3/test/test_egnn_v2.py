@@ -2,8 +2,8 @@
 import unittest
 import torch
 from fast_td3.robots.graph_builder import GraphBuilder
-from fast_td3.actors.gnn.egnn import EGNN_V2
-from fast_td3.actors.actor_egnn import ActorEGNN_V2
+from fast_td3.actors.gnn.egnn_v2 import EGNN_V2
+from fast_td3.actors.actor_egnn_v2 import ActorEGNN_V2
 
 
 class TestGraphBuilderV2(unittest.TestCase):

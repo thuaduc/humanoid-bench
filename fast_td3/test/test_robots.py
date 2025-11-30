@@ -159,6 +159,103 @@ class TestGraphBuilder(unittest.TestCase):
         self.assertEqual(builder_h1.num_edges, builder_h1.robot.num_edges)
         self.assertEqual(builder_g1.num_edges, builder_g1.robot.num_edges)
 
+    def test_identity_quaternion_format(self):
+        """Test that identity quaternion is in correct [w, x, y, z] format."""
+        from fast_td3.robots.graph_builder import GraphBuilder
+        import torch
+        
+        builder = GraphBuilder(
+            env_name="h1-push-v0",
+            batch_size=1,
+            device=torch.device("cpu"),
+            robot="h1"
+        )
+        
+        # Identity quaternion should be [w=1, x=0, y=0, z=0]
+        expected = torch.tensor([[1.0, 0.0, 0.0, 0.0]])
+        self.assertTrue(torch.allclose(builder._identity_quat, expected),
+                       f"Expected {expected}, got {builder._identity_quat}")
+
+    def test_generate_input_object_shapes(self):
+        """Test that generate_input_object returns correct shapes."""
+        from fast_td3.robots.graph_builder import GraphBuilder
+        import torch
+        
+        batch_size = 4
+        builder = GraphBuilder(
+            env_name="h1-push-v0",
+            batch_size=batch_size,
+            device=torch.device("cpu"),
+            robot="h1"
+        )
+        
+        # Create mock observations (64 features) and xanchor (21 positions)
+        obs = torch.randn(batch_size, 64)
+        xanchor = torch.randn(batch_size, 21, 3)
+        
+        h_joints, x_joints, h_objects, x_objects = builder.generate_input_object(obs, xanchor)
+        
+        # Check shapes
+        num_joints = 19
+        self.assertEqual(h_joints.shape, (batch_size * num_joints, 2))  # [batch*19, 2]
+        self.assertEqual(x_joints.shape, (batch_size * num_joints, 3))  # [batch*19, 3]
+        self.assertEqual(h_objects.shape, (batch_size * 2, 10))  # [batch*2, 10] (root + object)
+        self.assertEqual(x_objects.shape, (batch_size * 2, 3))  # [batch*2, 3]
+
+    def test_generate_input_object_different_batch_sizes(self):
+        """Test that generate_input_object works with different batch sizes."""
+        from fast_td3.robots.graph_builder import GraphBuilder
+        import torch
+        
+        builder = GraphBuilder(
+            env_name="h1-push-v0",
+            batch_size=1,
+            device=torch.device("cpu"),
+            robot="h1"
+        )
+        
+        # Test with different batch sizes
+        for batch_size in [1, 2, 4, 8]:
+            obs = torch.randn(batch_size, 64)
+            xanchor = torch.randn(batch_size, 21, 3)
+            
+            h_joints, x_joints, h_objects, x_objects = builder.generate_input_object(obs, xanchor)
+            
+            self.assertEqual(h_joints.shape[0], batch_size * 19)
+            self.assertEqual(h_objects.shape[0], batch_size * 2)
+
+    def test_quat_conjugate_multiply_identity(self):
+        """Test that multiplying by identity quaternion returns original quaternion."""
+        from fast_td3.robots.graph_builder import _quat_conjugate_multiply
+        import torch
+        
+        # Identity quaternion [w=1, x=0, y=0, z=0]
+        identity = torch.tensor([[1.0, 0.0, 0.0, 0.0]])
+        
+        # Test quaternion [w=0.5, x=0.5, y=0.5, z=0.5] (normalized)
+        test_quat = torch.tensor([[0.5, 0.5, 0.5, 0.5]])
+        
+        # identity^(-1) * test_quat should equal test_quat (since identity^(-1) = identity)
+        result = _quat_conjugate_multiply(identity, test_quat)
+        
+        self.assertTrue(torch.allclose(result, test_quat, atol=1e-6),
+                       f"Expected {test_quat}, got {result}")
+
+    def test_quat_conjugate_multiply_self_inverse(self):
+        """Test that q^(-1) * q = identity for any unit quaternion."""
+        from fast_td3.robots.graph_builder import _quat_conjugate_multiply
+        import torch
+        
+        # Test quaternion (normalized)
+        test_quat = torch.tensor([[0.5, 0.5, 0.5, 0.5]])
+        
+        # q^(-1) * q should equal identity [1, 0, 0, 0]
+        result = _quat_conjugate_multiply(test_quat, test_quat)
+        identity = torch.tensor([[1.0, 0.0, 0.0, 0.0]])
+        
+        self.assertTrue(torch.allclose(result, identity, atol=1e-6),
+                       f"Expected {identity}, got {result}")
+
 
 if __name__ == "__main__":
     unittest.main()
