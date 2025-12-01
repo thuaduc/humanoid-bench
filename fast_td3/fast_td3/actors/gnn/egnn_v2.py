@@ -169,15 +169,28 @@ class EGNN_V2(nn.Module):
     
     def generate_cross_edges(self, batch_size: int, num_objs: int, device: torch.device):
         num_joints = self.num_joints
-        
-        src = torch.repeat_interleave(
-            torch.arange(batch_size * num_joints, dtype=torch.long, device=device),
-            num_objs
-        )
-        
         object_start_idx = batch_size * num_joints
-        object_indices = torch.arange(object_start_idx, object_start_idx + num_objs, dtype=torch.long, device=device)
-        dst = object_indices.repeat(batch_size * num_joints)
+        
+        batch_ids = torch.arange(batch_size, device=device)
+        joint_ids_local = torch.arange(num_joints, device=device)
+        obj_ids_local = torch.arange(num_objs, device=device)
+        
+        # Joints: [B, J, O]
+        joints_expanded = (batch_ids[:, None] * num_joints + joint_ids_local[None, :]).unsqueeze(2).expand(-1, -1, num_objs)
+        
+        # Objects: [B, J, O]
+        objs_expanded = (object_start_idx + batch_ids[:, None] * num_objs + obj_ids_local[None, :]).unsqueeze(1).expand(-1, num_joints, -1)
+        
+        # Flatten to get edge lists
+        src_obj_to_joint = objs_expanded.flatten()
+        dst_obj_to_joint = joints_expanded.flatten()
+        
+        # Bidirectional: Add Joint -> Object
+        src_joint_to_obj = dst_obj_to_joint
+        dst_joint_to_obj = src_obj_to_joint
+        
+        src = torch.cat([src_obj_to_joint, src_joint_to_obj])
+        dst = torch.cat([dst_obj_to_joint, dst_joint_to_obj])
 
         return torch.stack([src, dst])
     
