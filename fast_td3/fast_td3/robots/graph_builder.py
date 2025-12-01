@@ -47,9 +47,11 @@ class GraphBuilder:
         self.batch_size = batch_size
         self.num_edges = self.robot.joint_connections.__len__()
         
-        # Cache for identity quaternion [0, 0, 0, 1]
-        self._identity_quat = None
-        self._identity_quat_batch_size = 0
+        # Pre-allocated identity quaternion [w, x, y, z] = [1, 0, 0, 0]
+        # Using expand() for batch handling to avoid CUDA graph breaking
+        self._identity_quat = torch.tensor(
+            [[1.0, 0.0, 0.0, 0.0]], device=device, dtype=torch.float32
+        )
 
     def generate_input(self, obs: torch.tensor, xanchor: torch.tensor):
         """Generate input with root information as global context."""
@@ -86,15 +88,13 @@ class GraphBuilder:
         ], dim=1)
 
         # --- 2. Process free base ---
-        # Identity quaternion [0, 0, 0, 1] for root in relative frame
-        # Pre-allocate and cache instead of creating new tensor every forward pass
-        if self._identity_quat is None or self._identity_quat_batch_size != batch_size:
-            self._identity_quat = torch.zeros(batch_size, 4, device=obs.device, dtype=obs.dtype)
-            self._identity_quat[:, 3] = 1.0  # [0, 0, 0, 1]
-            self._identity_quat_batch_size = batch_size
+        # Identity quaternion [w, x, y, z] = [1, 0, 0, 0] for root in relative frame
+        # Use expand() to broadcast to batch size - this is a view operation, not a copy,
+        # which maintains CUDA graph compatibility
+        identity_quat = self._identity_quat.to(dtype=obs.dtype).expand(batch_size, -1)
         
         h_root = torch.cat([
-            self._identity_quat,    # [batch, 4] - identity quaternion
+            identity_quat,          # [batch, 4] - identity quaternion
             obs[:, 33:39],          # [batch, 6] - root velocities
         ], dim=1)
 
