@@ -168,16 +168,26 @@ class EGNN_V2(nn.Module):
         return torch.stack([src_batch, dst_batch])
     
     def generate_cross_edges(self, batch_size: int, num_objs: int, device: torch.device):
+        """Generate cross-graph edges connecting each batch's joints to that batch's objects.
+        
+        For batch b:
+          - Joints at indices [b*num_joints, (b+1)*num_joints)
+          - Objects at indices [batch_size*num_joints + b*num_objs, batch_size*num_joints + (b+1)*num_objs)
+        """
         num_joints = self.num_joints
-        
-        src = torch.repeat_interleave(
-            torch.arange(batch_size * num_joints, dtype=torch.long, device=device),
-            num_objs
-        )
-        
         object_start_idx = batch_size * num_joints
-        object_indices = torch.arange(object_start_idx, object_start_idx + num_objs, dtype=torch.long, device=device)
-        dst = object_indices.repeat(batch_size * num_joints)
+        
+        # Create batch indices for all joints
+        batch_indices = torch.arange(batch_size, device=device).repeat_interleave(num_joints)
+        
+        # Source: all joint indices, repeated for each object
+        joint_indices = torch.arange(batch_size * num_joints, dtype=torch.long, device=device)
+        src = joint_indices.repeat_interleave(num_objs)
+        
+        # Destination: for each joint, connect to its batch's objects
+        batch_indices_expanded = batch_indices.repeat_interleave(num_objs)
+        obj_offsets = torch.arange(num_objs, device=device).repeat(batch_size * num_joints)
+        dst = object_start_idx + batch_indices_expanded * num_objs + obj_offsets
 
         return torch.stack([src, dst])
     
