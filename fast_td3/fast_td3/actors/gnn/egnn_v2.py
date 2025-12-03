@@ -168,26 +168,29 @@ class EGNN_V2(nn.Module):
         return torch.stack([src_batch, dst_batch])
     
     def generate_cross_edges(self, batch_size: int, num_objs: int, device: torch.device):
-        """Generate cross-graph edges connecting each batch's joints to that batch's objects.
-        
-        For batch b:
-          - Joints at indices [b*num_joints, (b+1)*num_joints)
-          - Objects at indices [batch_size*num_joints + b*num_objs, batch_size*num_joints + (b+1)*num_objs)
-        """
         num_joints = self.num_joints
         object_start_idx = batch_size * num_joints
         
-        # Create batch indices for all joints
-        batch_indices = torch.arange(batch_size, device=device).repeat_interleave(num_joints)
+        batch_ids = torch.arange(batch_size, device=device)
+        joint_ids_local = torch.arange(num_joints, device=device)
+        obj_ids_local = torch.arange(num_objs, device=device)
         
-        # Source: all joint indices, repeated for each object
-        joint_indices = torch.arange(batch_size * num_joints, dtype=torch.long, device=device)
-        src = joint_indices.repeat_interleave(num_objs)
+        # Joints: [B, J, O]
+        joints_expanded = (batch_ids[:, None] * num_joints + joint_ids_local[None, :]).unsqueeze(2).expand(-1, -1, num_objs)
         
-        # Destination: for each joint, connect to its batch's objects
-        batch_indices_expanded = batch_indices.repeat_interleave(num_objs)
-        obj_offsets = torch.arange(num_objs, device=device).repeat(batch_size * num_joints)
-        dst = object_start_idx + batch_indices_expanded * num_objs + obj_offsets
+        # Objects: [B, J, O]
+        objs_expanded = (object_start_idx + batch_ids[:, None] * num_objs + obj_ids_local[None, :]).unsqueeze(1).expand(-1, num_joints, -1)
+        
+        # Flatten to get edge lists
+        src_obj_to_joint = objs_expanded.flatten()
+        dst_obj_to_joint = joints_expanded.flatten()
+        
+        # Bidirectional: Add Joint -> Object
+        src_joint_to_obj = dst_obj_to_joint
+        dst_joint_to_obj = src_obj_to_joint
+        
+        src = torch.cat([src_obj_to_joint, src_joint_to_obj])
+        dst = torch.cat([dst_obj_to_joint, dst_joint_to_obj])
 
         return torch.stack([src, dst])
     

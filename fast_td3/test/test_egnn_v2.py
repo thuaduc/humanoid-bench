@@ -146,7 +146,7 @@ class TestEGNN_V2(unittest.TestCase):
             self.assertEqual(output.shape, (batch_size, 19))
 
     def test_egnn_v2_cross_edge_generation(self):
-        """Test that cross-graph edge generation is correct."""
+        """Test that cross-graph edge generation is correct (bidirectional)."""
         batch_size = 3
         num_joints = 19
         num_objs = 2
@@ -167,8 +167,8 @@ class TestEGNN_V2(unittest.TestCase):
         
         cross_edges = model.generate_cross_edges(batch_size, num_objs, self.device)
         
-        # Total edges: batch_size * num_joints * num_objs
-        expected_num_edges = batch_size * num_joints * num_objs
+        # Total edges: batch_size * num_joints * num_objs * 2 (bidirectional)
+        expected_num_edges = batch_size * num_joints * num_objs * 2
         self.assertEqual(cross_edges.shape[1], expected_num_edges)
         
         # Check each batch's joints connect to the correct objects
@@ -180,18 +180,24 @@ class TestEGNN_V2(unittest.TestCase):
             obj_start = object_start_idx + b * num_objs
             obj_end = obj_start + num_objs
             
-            # Get edges for this batch's joints
+            # Get edges where source is a joint in this batch
             mask = (cross_edges[0] >= joint_start) & (cross_edges[0] < joint_end)
             batch_edges = cross_edges[:, mask]
-            
-            # Verify source indices
-            self.assertEqual(batch_edges[0].min().item(), joint_start)
-            self.assertEqual(batch_edges[0].max().item(), joint_end - 1)
             
             # Verify destination indices (should be this batch's objects)
             unique_dsts = sorted(batch_edges[1].unique().tolist())
             expected_dsts = list(range(obj_start, obj_end))
             self.assertEqual(unique_dsts, expected_dsts)
+            
+            # Get edges where source is an object in this batch
+            mask_obj = (cross_edges[0] >= obj_start) & (cross_edges[0] < obj_end)
+            batch_edges_obj = cross_edges[:, mask_obj]
+            
+            # Verify destination indices (should be this batch's joints)
+            unique_joint_dsts = sorted(batch_edges_obj[1].unique().tolist())
+            expected_joint_dsts = list(range(joint_start, joint_end))
+            self.assertEqual(unique_joint_dsts, expected_joint_dsts)
+
 
 
 class TestActorEGNN_V2(unittest.TestCase):
@@ -301,6 +307,8 @@ class TestEGNN_V2_NodeIndexing(unittest.TestCase):
         - Batch 1 joints: indices 19-37
         - Batch 0 objects: indices 38-39
         - Batch 1 objects: indices 40-41
+        
+        Cross-edges are bidirectional between joints and objects.
         """
         device = torch.device("cpu")
         batch_size = 2
@@ -339,17 +347,31 @@ class TestEGNN_V2_NodeIndexing(unittest.TestCase):
         self.assertTrue(torch.all(batch_1_edges[0] >= num_joints))
         self.assertTrue(torch.all(batch_1_edges[0] < 2 * num_joints))
         
-        # Test cross edges - verify each batch connects to its own objects
+        # Test cross edges - verify bidirectional connections within each batch
         cross_edges = model.generate_cross_edges(batch_size, num_objs, device)
         object_start_idx = batch_size * num_joints  # 38
         
-        # Batch 0 joints (0-18) should connect to objects 38-39
-        batch_0_cross = cross_edges[:, cross_edges[0] < num_joints]
+        # Batch 0: joints (0-18) should connect bidirectionally to objects (38-39)
+        # Check joints -> objects
+        batch_0_joints_mask = (cross_edges[0] < num_joints)
+        batch_0_cross = cross_edges[:, batch_0_joints_mask]
         self.assertEqual(sorted(batch_0_cross[1].unique().tolist()), [38, 39])
         
-        # Batch 1 joints (19-37) should connect to objects 40-41
-        batch_1_cross = cross_edges[:, cross_edges[0] >= num_joints]
+        # Check objects -> joints for batch 0
+        batch_0_objs_mask = (cross_edges[0] >= 38) & (cross_edges[0] < 40)
+        batch_0_obj_cross = cross_edges[:, batch_0_objs_mask]
+        self.assertEqual(sorted(batch_0_obj_cross[1].unique().tolist()), list(range(0, 19)))
+        
+        # Batch 1: joints (19-37) should connect bidirectionally to objects (40-41)
+        # Check joints -> objects
+        batch_1_joints_mask = (cross_edges[0] >= num_joints) & (cross_edges[0] < 2 * num_joints)
+        batch_1_cross = cross_edges[:, batch_1_joints_mask]
         self.assertEqual(sorted(batch_1_cross[1].unique().tolist()), [40, 41])
+        
+        # Check objects -> joints for batch 1
+        batch_1_objs_mask = (cross_edges[0] >= 40) & (cross_edges[0] < 42)
+        batch_1_obj_cross = cross_edges[:, batch_1_objs_mask]
+        self.assertEqual(sorted(batch_1_obj_cross[1].unique().tolist()), list(range(19, 38)))
 
 
 if __name__ == "__main__":
