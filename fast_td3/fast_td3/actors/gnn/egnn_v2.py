@@ -7,11 +7,11 @@ from fast_td3.actors.gnn.egnn import E_GCL, env_with_object
 
 class EGNN_V2(nn.Module):
     """
-    EGNN v2 with cross-graph message passing from objects to joints.
+    EGNN v2 with cross-graph message passing between objects and joints.
     
     Uses E_GCL for both:
     1. Message passing within the joint graph
-    2. Unidirectional message passing from objects to joints
+    2. Bidirectional message passing between objects and joints
     """
     def __init__(
         self,
@@ -87,7 +87,7 @@ class EGNN_V2(nn.Module):
             ]
         )
         
-        # Cross-graph layer: object → joint (unidirectional)
+        # Cross-graph layer: bidirectional message passing between objects and joints
         self.cross_layer = E_GCL(
             self.hidden_nf,
             self.hidden_nf,
@@ -141,7 +141,7 @@ class EGNN_V2(nn.Module):
         h_combined = torch.cat([h_joints, h_objects], dim=0)
         x_combined = torch.cat([x_joints, x_objects], dim=0)
         
-        # Get cross-graph edges (object → joint, unidirectional)
+        # Get cross-graph edges (bidirectional between objects and joints)
         cross_edges = self.get_cached_cross_edges(current_batch_size)
         h_combined, x_combined, _ = self.cross_layer(h=h_combined, edge_index=cross_edges, coord=x_combined)
         
