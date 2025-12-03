@@ -7,11 +7,17 @@ from fast_td3.actors.gnn.egnn import E_GCL, env_with_object
 
 class EGNN_V2(nn.Module):
     """
-    EGNN v2 with cross-graph message passing from objects to joints.
+    EGNN v2 with improved object handling for mixed-type environments.
     
-    Uses E_GCL for both:
-    1. Message passing within the joint graph
-    2. Unidirectional message passing from objects to joints
+    For environments with objects (like h1-balance_simple-v0):
+    - Uses E_GCL layers for message passing within the joint graph
+    - Uses MLP to process object features
+    - Broadcasts object features and concatenates with joint features
+    - Uses global aggregation MLP to produce final actions
+    
+    For environments without objects:
+    - Uses E_GCL layers for message passing within the joint graph
+    - Uses root context as global information
     """
     def __init__(
         self,
@@ -61,12 +67,12 @@ class EGNN_V2(nn.Module):
         self.out_node_nf = out_node_nf
         self.batch_size = batch_size
         self.has_mixed_node_types = env_name in env_with_object
+        self.env_name = env_name
         self.robot = robot
         self.graph_builder = GraphBuilder(env_name, batch_size, device, robot)
         self.num_joints = self.graph_builder.robot.num_joints
         self.num_edges = self.graph_builder.robot.num_edges
         self._joint_edges_cache = {}
-        self._cross_edges_cache = {}
         
         # Joint graph layers (message passing within joints)
         self.joint_layers = nn.ModuleList(
@@ -87,36 +93,24 @@ class EGNN_V2(nn.Module):
             ]
         )
         
-        # Cross-graph layer: object → joint (unidirectional)
-        self.cross_layer = E_GCL(
-            self.hidden_nf,
-            self.hidden_nf,
-            self.hidden_nf,
-            edges_in_d=in_edge_nf,
-            act_fn=act_fn,
-            residual=residual,
-            attention=attention,
-            normalize=normalize,
-            tanh=tanh,
-            coords_agg=coords_agg,
-        )
-        
-        # Input embeddings
+        # Input embedding for joints
         self.joint_embedding_in = nn.Sequential(
             nn.Linear(in_joint_nf, self.hidden_nf), act_fn
         )
         
-        self.object_embedding = nn.Sequential(
-            nn.Linear(in_object_nf, self.hidden_nf), 
-            act_fn
-        )
+        # Object MLP for processing object features (uses LazyLinear for flexibility)
+        self.object_mlp = nn.Sequential(nn.LazyLinear(self.hidden_nf), act_fn)
         
-        self.joint_embedding_out = nn.Sequential(
-            nn.Linear(self.hidden_nf, out_node_nf),
-            nn.Tanh(),
+        # Global aggregation MLP: combines joint and object features
+        # Input: [hidden_nf * 2] (joint features + object features)
+        # Output: out_node_nf (action per joint)
+        self.global_aggregation = nn.Sequential(
+            nn.Linear(self.hidden_nf * 2, self.hidden_nf * 4),
+            act_fn,
+            nn.Linear(self.hidden_nf * 4, self.hidden_nf * 2),
+            act_fn,
+            nn.Linear(self.hidden_nf * 2, self.out_node_nf),
         )
-        nn.init.normal_(self.joint_embedding_out[0].weight, 0.0, 0.01)
-        nn.init.constant_(self.joint_embedding_out[0].bias, 0.0)
         
         self.to(self.device)
 
@@ -124,34 +118,83 @@ class EGNN_V2(nn.Module):
         current_batch_size = obs.shape[0]
         joint_edges = self.get_cached_joint_edges(current_batch_size)
         
-        if not self.has_mixed_node_types:
-            h_joints, x_joints, h_objects, x_objects = self.graph_builder.generate_input(obs, xanchor)
+        if self.has_mixed_node_types:
+            return self.process_mixed_types(obs, xanchor, joint_edges, current_batch_size)
         else:
-            h_joints, x_joints, h_objects, x_objects = self.graph_builder.generate_input_object(obs, xanchor)
+            return self.process_single_type(obs, xanchor, joint_edges, current_batch_size)
 
-        # Embed joint and object features
-        h_joints = self.joint_embedding_in(h_joints)  # [batch*num_joints, hidden]
-        h_objects = self.object_embedding(h_objects)  # [batch, hidden]
-        
-        # Step 1: Message passing within joint graph (L rounds)
+    def process_mixed_types(
+        self,
+        obs: torch.Tensor,
+        xanchor: torch.Tensor,
+        edges: torch.Tensor,
+        current_batch_size: int,
+    ) -> torch.Tensor:
+        """Process environments with objects using separate clusters for joints and objects."""
+        h_joint, h_object, x_joint, _ = (
+            self.graph_builder.generate_input_for_mixed_type(obs, xanchor)
+        )
+
+        # Embed and process joint features through EGNN layers
+        h_joints = self.joint_embedding_in(h_joint)
         for layer in self.joint_layers:
-            h_joints, x_joints, _ = layer(h=h_joints, edge_index=joint_edges, coord=x_joints)
+            h_joints, x_joint, _ = layer(h=h_joints, edge_index=edges, coord=x_joint)
         
-        # Step 2: Cross-graph message passing from objects to joints
-        h_combined = torch.cat([h_joints, h_objects], dim=0)
-        x_combined = torch.cat([x_joints, x_objects], dim=0)
-        
-        # Get cross-graph edges (object → joint, unidirectional)
-        cross_edges = self.get_cached_cross_edges(current_batch_size)
-        h_combined, x_combined, _ = self.cross_layer(h=h_combined, edge_index=cross_edges, coord=x_combined)
-        
-        # Extract updated joint features and coordinates
-        h_joints = h_combined[:current_batch_size * self.num_joints]
-        x_joints = x_combined[:current_batch_size * self.num_joints]
-        
-        # Step 3: Output projection
-        actions = self.joint_embedding_out(h_joints)
+        # Reshape to [batch, num_joints, hidden]
+        h_joints_batched = (
+            h_joints.view(current_batch_size, self.num_joints, self.hidden_nf) * 2
+        )
 
+        # Process object features with MLP
+        h_object_processed = self.object_mlp(h_object)
+        
+        # Broadcast object features to match joint dimensions [batch, num_joints, hidden]
+        h_object_broadcasted = h_object_processed.unsqueeze(1).expand(
+            -1, self.num_joints, -1
+        )
+
+        # Concatenate joint and object features
+        h_concat = torch.cat([h_joints_batched, h_object_broadcasted], dim=-1)
+        
+        # Global aggregation to produce actions
+        h_global = self.global_aggregation(h_concat)
+
+        actions = torch.tanh(h_global)
+        return actions.view(current_batch_size, self.num_joints)
+
+    def process_single_type(
+        self,
+        obs: torch.Tensor,
+        xanchor: torch.Tensor,
+        edges: torch.Tensor,
+        current_batch_size: int,
+    ) -> torch.Tensor:
+        """Process environments without objects using joints and root context."""
+        h_joints, x_joint, h_root, _ = self.graph_builder.generate_input(obs, xanchor)
+
+        # Embed and process joint features through EGNN layers
+        h_joints = self.joint_embedding_in(h_joints)
+        for layer in self.joint_layers:
+            h_joints, x_joint, _ = layer(h=h_joints, edge_index=edges, coord=x_joint)
+        
+        # Reshape to [batch, num_joints, hidden]
+        h_joints_batched = (
+            h_joints.view(current_batch_size, self.num_joints, self.hidden_nf) * 2
+        )
+
+        # Process root features with MLP
+        h_root = self.object_mlp(h_root)
+        
+        # Broadcast root features to match joint dimensions [batch, num_joints, hidden]
+        h_root_broadcasted = h_root.unsqueeze(1).expand(-1, self.num_joints, -1)
+
+        # Concatenate joint and root features
+        h_concat = torch.cat([h_joints_batched, h_root_broadcasted], dim=-1)
+        
+        # Global aggregation to produce actions
+        h_global = self.global_aggregation(h_concat)
+
+        actions = torch.tanh(h_global)
         return actions.view(current_batch_size, self.num_joints)
 
     def generate_joint_edges(self, batch_size: int, device: torch.device):
@@ -166,34 +209,7 @@ class EGNN_V2(nn.Module):
         dst_batch = (dst.unsqueeze(0) + offsets.unsqueeze(1)).flatten()
 
         return torch.stack([src_batch, dst_batch])
-    
-    def generate_cross_edges(self, batch_size: int, num_objs: int, device: torch.device):
-        num_joints = self.num_joints
-        object_start_idx = batch_size * num_joints
-        
-        batch_ids = torch.arange(batch_size, device=device)
-        joint_ids_local = torch.arange(num_joints, device=device)
-        obj_ids_local = torch.arange(num_objs, device=device)
-        
-        # Joints: [B, J, O]
-        joints_expanded = (batch_ids[:, None] * num_joints + joint_ids_local[None, :]).unsqueeze(2).expand(-1, -1, num_objs)
-        
-        # Objects: [B, J, O]
-        objs_expanded = (object_start_idx + batch_ids[:, None] * num_objs + obj_ids_local[None, :]).unsqueeze(1).expand(-1, num_joints, -1)
-        
-        # Flatten to get edge lists
-        src_obj_to_joint = objs_expanded.flatten()
-        dst_obj_to_joint = joints_expanded.flatten()
-        
-        # Bidirectional: Add Joint -> Object
-        src_joint_to_obj = dst_obj_to_joint
-        dst_joint_to_obj = src_obj_to_joint
-        
-        src = torch.cat([src_obj_to_joint, src_joint_to_obj])
-        dst = torch.cat([dst_obj_to_joint, dst_joint_to_obj])
 
-        return torch.stack([src, dst])
-    
     def get_cached_joint_edges(self, current_batch_size: int):
         """Get cached edge indices for the joint graph."""
         if current_batch_size in self._joint_edges_cache:
@@ -201,13 +217,4 @@ class EGNN_V2(nn.Module):
         
         edges = self.generate_joint_edges(current_batch_size, self.device)
         self._joint_edges_cache[current_batch_size] = edges
-        return edges
-    
-    def get_cached_cross_edges(self, current_batch_size: int):
-        """Get cached edge indices for cross-graph connections."""
-        if current_batch_size in self._cross_edges_cache:
-            return self._cross_edges_cache[current_batch_size]
-        
-        edges = self.generate_cross_edges(current_batch_size, 2 if self.has_mixed_node_types else 1, self.device)
-        self._cross_edges_cache[current_batch_size] = edges
         return edges

@@ -118,6 +118,43 @@ class GraphBuilder:
 
         return h_joints, x_joints, h_objects, x_objects
 
+    def generate_input_for_mixed_type(self, obs: torch.tensor, xanchor: torch.tensor):
+        """
+        Generates graph inputs for environments with objects using a simpler approach.
+        This approach concatenates more observation features for the object node,
+        which has been shown to work well for tasks like h1-balance_simple-v0.
+        
+        Returns:
+            h_node: Joint features [batch*19, 2] - position and velocity per joint
+            h_object: Object features [batch, 26] - comprehensive object info
+            x_joint: Joint positions relative to root [batch*19, 3]
+            x_object: Object position relative to root [batch, 3]
+        """
+        assert xanchor.shape[1] == 21, f"xanchor shape: {xanchor.shape}"
+        assert obs.shape[1] == 64, f"obs shape: {obs.shape}"
+
+        # Joint positions relative to root
+        x_joint = (xanchor[:, 1:20] - xanchor[:, [0]]).reshape(-1, 3)
+        # Object position relative to root
+        x_object = (xanchor[:, 20:] - xanchor[:, [0]]).reshape(-1, 3)
+
+        # Joint features: position and velocity
+        h_node = torch.cat(
+            [
+                obs[:, 7:26].reshape(-1, 1),   # Joint positions
+                obs[:, 39:58].reshape(-1, 1),  # Joint velocities
+            ],
+            dim=1,
+        )
+
+        # Object features: comprehensive info including root and object state
+        # obs[:, 0:7] = root position (3) + orientation quaternion (4) = 7
+        # obs[:, 26:39] = object position (3) + quaternion (4) + velocity (6) = 13
+        # obs[:, 58:64] = additional object features (6)
+        h_object = torch.cat([obs[:, 0:7], obs[:, 26:39], obs[:, 58:64]], dim=1)
+
+        return h_node, h_object, x_joint, x_object
+
     def visualize_graph(
         self, save_path: str = "robot_graph.png"
     ):
