@@ -34,12 +34,11 @@ class ActorEGNN_V2(nn.Module):
             case _:
                 raise ValueError(f"Unknown activation function: {act_fn}")
 
-        # EGNN v2 with MLP-based object processing and global aggregation
-        # in_object_nf is not needed since we use LazyLinear for object processing
+        # EGNN v2 for message passing with cross-graph aggregation
         self.egnn = EGNN_V2(
             hidden_nf=hidden_dim,
             in_joint_nf=2,
-            in_object_nf=0,  # Unused due to LazyLinear
+            in_object_nf=10 if env_name == "h1-balance_simple-v0" else 6,
             in_edge_nf=0,
             out_node_nf=1,
             batch_size=batch_size,

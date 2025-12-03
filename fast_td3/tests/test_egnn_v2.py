@@ -6,8 +6,8 @@ from fast_td3.actors.gnn.egnn_v2 import EGNN_V2
 from fast_td3.actors.actor_egnn_v2 import ActorEGNN_V2
 
 
-class TestGraphBuilder(unittest.TestCase):
-    """Test graph builder functionality."""
+class TestGraphBuilderV2(unittest.TestCase):
+    """Test graph builder v2 functionality."""
 
     def setUp(self):
         """Set up test fixtures."""
@@ -20,12 +20,13 @@ class TestGraphBuilder(unittest.TestCase):
             robot="h1"
         )
 
-    def test_generate_input_output_shapes(self):
-        """Test that generate_input returns correct shapes for env without object."""
+    def test_generate_input_v2_output_shapes(self):
+        """Test that generate_input_v2 returns correct shapes."""
+        # Create mock observations and xanchor
         obs = torch.randn(self.batch_size, 51)
         xanchor = torch.randn(self.batch_size, 20, 3)
         
-        h_joints, x_joints, h_objects, x_objects = self.builder.generate_input(obs, xanchor)
+        h_joints, x_joints, h_objects, x_objects = self.builder.generate_input_v2(obs, xanchor)
         
         # Check joint features shape [batch*num_joints, 2]
         self.assertEqual(h_joints.shape, (self.batch_size * 19, 2))
@@ -39,31 +40,25 @@ class TestGraphBuilder(unittest.TestCase):
         # Check object coordinates shape [batch, 3]
         self.assertEqual(x_objects.shape, (self.batch_size, 3))
 
-    def test_generate_input_for_mixed_type_shapes(self):
-        """Test that generate_input_for_mixed_type returns correct shapes."""
-        builder = GraphBuilder(
-            env_name="h1-balance_simple-v0",
-            batch_size=self.batch_size,
-            device=self.device,
-            robot="h1"
-        )
+    def test_generate_input_v2_vs_v1_consistency(self):
+        """Test that v2 returns similar data to v1 for joints."""
+        obs = torch.randn(self.batch_size, 51)
+        xanchor = torch.randn(self.batch_size, 20, 3)
         
-        obs = torch.randn(self.batch_size, 64)
-        xanchor = torch.randn(self.batch_size, 21, 3)
+        # Get v1 outputs
+        h_v1, x_v1, h_obj_v1, x_obj_v1 = self.builder.generate_input(obs, xanchor)
         
-        h_node, h_object, x_joint, x_object = builder.generate_input_for_mixed_type(obs, xanchor)
+        # Get v2 outputs
+        h_v2, x_v2, h_obj_v2, x_obj_v2 = self.builder.generate_input_v2(obs, xanchor)
         
-        # Check joint features shape [batch*num_joints, 2]
-        self.assertEqual(h_node.shape, (self.batch_size * 19, 2))
+        # Joint features should be identical
+        self.assertTrue(torch.allclose(h_v1, h_v2, atol=1e-6))
         
-        # Check object features shape [batch, 26]
-        self.assertEqual(h_object.shape, (self.batch_size, 26))
+        # Joint coordinates should be identical
+        self.assertTrue(torch.allclose(x_v1, x_v2, atol=1e-6))
         
-        # Check joint coordinates shape [batch*num_joints, 3]
-        self.assertEqual(x_joint.shape, (self.batch_size * 19, 3))
-        
-        # Check object coordinates shape [batch, 3]
-        self.assertEqual(x_object.shape, (self.batch_size, 3))
+        # Object features should be identical
+        self.assertTrue(torch.allclose(h_obj_v1, h_obj_v2, atol=1e-6))
 
 
 class TestEGNN_V2(unittest.TestCase):
@@ -143,35 +138,36 @@ class TestEGNN_V2(unittest.TestCase):
             output = model(obs, xanchor)
             self.assertEqual(output.shape, (batch_size, 19))
 
-    def test_egnn_v2_mixed_type_forward(self):
-        """Test EGNN_V2 forward pass for environments with objects."""
+    def test_egnn_v2_cross_aggregation(self):
+        """Test that cross-graph aggregation is working."""
         model = EGNN_V2(
             in_joint_nf=2,
-            in_object_nf=0,  # Unused due to LazyLinear
-            hidden_nf=self.hidden_dim,
+            in_object_nf=6,
+            hidden_nf=32,
             out_node_nf=1,
             in_edge_nf=0,
             device=self.device,
             batch_size=self.batch_size,
             act_fn=torch.nn.SiLU(),
-            n_layers=2,
+            n_layers=1,
             robot="h1",
-            env_name="h1-balance_simple-v0",  # Environment with object
+            env_name="h1-stand-v0",
         )
         
-        # Create mock observations for balance_simple (64 dims)
-        obs = torch.randn(self.batch_size, 64)
-        xanchor = torch.randn(self.batch_size, 21, 3)  # 21 positions for env with object
+        # Create mock data
+        h_joints = torch.randn(self.batch_size * 19, 32)
+        x_joints = torch.randn(self.batch_size * 19, 3)
+        h_objects = torch.randn(self.batch_size, 32)
+        x_objects = torch.randn(self.batch_size, 3)
         
-        # Forward pass
-        output = model(obs, xanchor)
+        # Test cross-graph aggregation
+        h_pooled, x_pooled = model.cross_graph_aggregation(
+            h_joints, x_joints, h_objects, x_objects, self.batch_size
+        )
         
-        # Output should be [batch_size, num_joints]
-        self.assertEqual(output.shape, (self.batch_size, 19))
-        
-        # Output should be bounded by tanh
-        self.assertTrue(torch.all(output >= -1.0))
-        self.assertTrue(torch.all(output <= 1.0))
+        # Check output shapes
+        self.assertEqual(h_pooled.shape, (self.batch_size * 19, 32))
+        self.assertEqual(x_pooled.shape, (self.batch_size * 19, 3))
 
 
 class TestActorEGNN_V2(unittest.TestCase):
@@ -225,7 +221,7 @@ class TestActorEGNN_V2(unittest.TestCase):
     def test_actor_egnn_v2_explore(self):
         """Test that ActorEGNN_V2 explore method adds noise."""
         actor = ActorEGNN_V2(
-            num_envs=self.batch_size,  # Match num_envs with batch_size for noise shape compatibility
+            num_envs=self.num_envs,
             hidden_dim=64,
             batch_size=self.batch_size,
             device=self.device,
@@ -269,41 +265,17 @@ class TestActorEGNN_V2(unittest.TestCase):
             output = actor(obs, xanchor)
             self.assertEqual(output.shape, (self.batch_size, 19))
 
-    def test_actor_egnn_v2_balance_simple(self):
-        """Test ActorEGNN_V2 with h1-balance_simple-v0 environment."""
-        actor = ActorEGNN_V2(
-            num_envs=self.num_envs,
-            hidden_dim=64,
-            batch_size=self.batch_size,
-            device=self.device,
-            n_layers=2,
-            act_fn="silu",
-            env_name="h1-balance_simple-v0",
-            robot="h1",
-        )
-        
-        # balance_simple has 64-dim observations and 21 xanchor positions
-        obs = torch.randn(self.batch_size, 64)
-        xanchor = torch.randn(self.batch_size, 21, 3)
-        
-        output = actor(obs, xanchor)
-        
-        # Output should be [batch_size, num_joints=19]
-        self.assertEqual(output.shape, (self.batch_size, 19))
-        
-        # Actions should be in [-1, 1] due to Tanh
-        self.assertTrue(torch.all(output >= -1.0))
-        self.assertTrue(torch.all(output <= 1.0))
-
 
 class TestEGNN_V2_NodeIndexing(unittest.TestCase):
     """Test that node indexing follows the specification."""
 
     def test_node_indexing_pattern(self):
         """
-        Test that joint edge indices follow the pattern:
+        Test that node indices follow the pattern:
         - Batch 0 joints: indices 0-18
         - Batch 1 joints: indices 19-37
+        - Batch 0 object: index 38
+        - Batch 1 object: index 39
         """
         device = torch.device("cpu")
         batch_size = 2
@@ -323,14 +295,18 @@ class TestEGNN_V2_NodeIndexing(unittest.TestCase):
             env_name="h1-stand-v0",
         )
         
-        # Generate joint edge indices
-        edges = model.generate_joint_edges(batch_size, device)
+        # Generate edge indices
+        edges = model.generate_index(batch_size, device)
         
         # Check that all edge indices are within the joint node range
         # Joints for batch 0: 0-18, batch 1: 19-37
         max_joint_idx = batch_size * num_joints - 1
         self.assertTrue(torch.all(edges[0] <= max_joint_idx))
         self.assertTrue(torch.all(edges[1] <= max_joint_idx))
+        
+        # Object nodes should start after all joint nodes
+        # In the implementation, object nodes are handled separately in cross_graph_aggregation
+        # They don't participate in the joint graph edges
         
         # Verify that batch 0 joint edges are in range [0, 18]
         batch_0_edges = edges[:, edges[0] < num_joints]
