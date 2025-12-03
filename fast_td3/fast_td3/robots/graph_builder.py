@@ -81,29 +81,23 @@ class GraphBuilder:
         batch_size = obs.shape[0]
         
         # --- 1. Process Joints ---
-        x_joints = (xanchor[:, 1:20] - xanchor[:, :1]).reshape(-1, 3)
+        x_joints = (xanchor[:, 1:20] - xanchor[:, [0]]).reshape(-1, 3)
         h_joints = torch.cat([
             obs[:, 7:26].reshape(-1, 1),   # Joint Pos [batch, 19]
             obs[:, 39:58].reshape(-1, 1),  # Joint Vel [batch, 19]
         ], dim=1)
 
         # --- 2. Process free base ---
-        # Identity quaternion [w, x, y, z] = [1, 0, 0, 0] for root in relative frame
-        # Use expand() to broadcast to batch size - this is a view operation, not a copy,
-        # which maintains CUDA graph compatibility
-        identity_quat = self._identity_quat.to(dtype=obs.dtype).expand(batch_size, -1)
-        
         h_root = torch.cat([
-            identity_quat,          # [batch, 4] - identity quaternion
+            obs[:, 3:7],              # [batch, 4] - root quaternion
             obs[:, 33:39],          # [batch, 6] - root velocities
         ], dim=1)
 
         # --- 3. Process object ---
-        root_quat = obs[:, 3:7]     # [batch, 4]
         obj_quat = obs[:, 29:33]    # [batch, 4]
         
         # Use specialized JIT function: conjugate multiply in one operation
-        obj_quat_rel = _quat_conjugate_multiply(root_quat, obj_quat)  # [batch, 4]
+        obj_quat_rel = _quat_conjugate_multiply(obs[:, 3:7], obj_quat)  # [batch, 4]
         
         h_obj = torch.cat([
             obj_quat_rel,           # [batch, 4] - relative quaternion
@@ -114,7 +108,7 @@ class GraphBuilder:
         # h_objects: [batch, 2, 10] -> [batch*2, 10]
         # Each entity has 10 dims: 4 (quat) + 6 (velocity)
         h_objects = torch.stack([h_root, h_obj], dim=1).reshape(-1, 10)
-        x_objects = (xanchor[:, [0, 20]] - xanchor[:, :1]).reshape(-1, 3)
+        x_objects = (xanchor[:, [0, 20]] - xanchor[:, [0]]).reshape(-1, 3)
 
         return h_joints, x_joints, h_objects, x_objects
 
