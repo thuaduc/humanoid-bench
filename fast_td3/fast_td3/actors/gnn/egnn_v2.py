@@ -141,6 +141,7 @@ class EGNN_V2(nn.Module):
             h_joints, x_joint, _ = layer(h=h_joints, edge_index=edges, coord=x_joint)
         
         # Reshape to [batch, num_joints, hidden]
+        # Scale by 2 to amplify joint features relative to object features (empirically works well)
         h_joints_batched = (
             h_joints.view(current_batch_size, self.num_joints, self.hidden_nf) * 2
         )
@@ -178,6 +179,7 @@ class EGNN_V2(nn.Module):
             h_joints, x_joint, _ = layer(h=h_joints, edge_index=edges, coord=x_joint)
         
         # Reshape to [batch, num_joints, hidden]
+        # Scale by 2 to amplify joint features relative to object features (empirically works well)
         h_joints_batched = (
             h_joints.view(current_batch_size, self.num_joints, self.hidden_nf) * 2
         )

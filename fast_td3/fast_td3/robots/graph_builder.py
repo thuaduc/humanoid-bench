@@ -124,13 +124,19 @@ class GraphBuilder:
         This approach concatenates more observation features for the object node,
         which has been shown to work well for tasks like h1-balance_simple-v0.
         
+        Expected dimensions for environments with objects:
+        - xanchor: [batch, 21, 3] - root (1) + joints (19) + object (1) = 21 anchor positions
+        - obs: [batch, 64] - observation vector for environments with objects
+        
         Returns:
             h_node: Joint features [batch*19, 2] - position and velocity per joint
             h_object: Object features [batch, 26] - comprehensive object info
             x_joint: Joint positions relative to root [batch*19, 3]
             x_object: Object position relative to root [batch, 3]
         """
+        # Expected: 21 anchor positions (root + 19 joints + 1 object)
         assert xanchor.shape[1] == 21, f"xanchor shape: {xanchor.shape}"
+        # Expected: 64-dim observation for environments with objects
         assert obs.shape[1] == 64, f"obs shape: {obs.shape}"
 
         # Joint positions relative to root

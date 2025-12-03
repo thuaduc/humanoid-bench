@@ -225,7 +225,7 @@ class TestActorEGNN_V2(unittest.TestCase):
     def test_actor_egnn_v2_explore(self):
         """Test that ActorEGNN_V2 explore method adds noise."""
         actor = ActorEGNN_V2(
-            num_envs=self.batch_size,  # Use batch_size for consistency
+            num_envs=self.batch_size,  # Match num_envs with batch_size for noise shape compatibility
             hidden_dim=64,
             batch_size=self.batch_size,
             device=self.device,
