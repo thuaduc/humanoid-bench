@@ -260,16 +260,30 @@ class HumanoidEnv(MujocoEnv, gym.utils.EzPickle):
         init_qpos = self.data.qpos.copy()
         init_qvel = self.data.qvel.copy()
         r = self.randomness
+        
         if not (self._random_position or self._random_orientation):
             # Default randomness to all qpos
-            init_qpos += self.np_random.uniform(-r, r, size=self.model.nq)
+            # init_qpos += self.np_random.uniform(-r, r, size=self.model.nq)
+            init_qpos += 0
         else:
             # reset robot to random position
-            if self._random_position:
-                init_qpos[:2] += self.np_random.uniform(-10, 10, size=2)
-            # rotate robot randomly
+            # if self._random_position:
+                # init_qpos[:2] += self.np_random.uniform(-10, 10, size=2)
+                
+            # rotate robot randomly (orientation only, keep position centered)
             if self._random_orientation:
-                init_qpos[3:7] = euler_to_quat(np.array([0.0, 0.0, self.np_random.uniform(-np.pi, np.pi)]))
+                # Rotate quaternions
+                rotation_angle = np.pi / 2
+                init_qpos[3:7] = euler_to_quat(np.array([0.0, 0.0, rotation_angle]))
+                init_qpos[29:33] = euler_to_quat(np.array([0.0, 0.0, rotation_angle]))
+                
+                # Also rotate the xy position around the board center (0,0) to keep feet centered
+                xy_pos = init_qpos[:2].copy()
+                cos_angle = np.cos(rotation_angle)
+                sin_angle = np.sin(rotation_angle)
+                init_qpos[0] = xy_pos[0] * cos_angle - xy_pos[1] * sin_angle
+                init_qpos[1] = xy_pos[0] * sin_angle + xy_pos[1] * cos_angle
+                
         self.set_state(init_qpos, init_qvel)
 
         # Task-specific reset and return observations

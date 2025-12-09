@@ -71,7 +71,7 @@ class BaseArgs:
     """the maximum value of the support"""
     critic_hidden_dim: int = 512
     """the hidden dimension of the critic network"""
-    actor_hidden_dim: int = 512
+    actor_hidden_dim: int = 384
     """the hidden dimension of the actor network"""
     use_cdq: bool = True
     """whether to use Clipped Double Q-learning"""

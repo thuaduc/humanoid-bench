@@ -17,9 +17,9 @@ class MockRobot:
 
 def test_cross_edges():
     device = "cpu"
-    batch_size = 2
+    batch_size = 3
     num_joints = 19
-    num_objs = 1
+    num_objs = 2
     
     # Mock EGNN
     model = EGNN_V2(

@@ -454,7 +454,6 @@ def save_params(
     qnet,
     qnet_target,
     obs_normalizer,
-    xanchor_normalizer,
     critic_obs_normalizer,
     args,
     save_path,
@@ -468,11 +467,6 @@ def save_params(
         "obs_normalizer_state": (
             cpu_state(obs_normalizer.state_dict())
             if hasattr(obs_normalizer, "state_dict")
-            else None
-        ),
-        "xanchor_normalizer_state": (
-            cpu_state(xanchor_normalizer.state_dict())
-            if hasattr(xanchor_normalizer, "state_dict")
             else None
         ),
         "critic_obs_normalizer_state": (

@@ -10,6 +10,7 @@ if sys.platform != "darwin":
     os.environ["MUJOCO_GL"] = "egl"
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["JAX_DEFAULT_MATMUL_PRECISION"] = "highest"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import random
 import tqdm
 import wandb
@@ -130,6 +131,7 @@ def main():
         wandb.init(
             entity="thuaduc24042001-technical-university-of-munich",
             project="FastTD3 - new",
+            #project="HB - benchmark",
             name=run_name,
             config=config,
             save_code=True,
@@ -139,9 +141,10 @@ def main():
             ),
         )
         
-        wandb.save("fast_td3/fast_td3/actors/gnn/egnn.py")
-        wandb.save("fast_td3/fast_td3/robots/H1.py")
-        wandb.save("fast_td3/fast_td3/robots/graph_builder.py")
+        wandb.save("fast_td3/actors/gnn/egnn.py")
+        wandb.save("fast_td3/actors/gnn/egnn_v2.py")
+        wandb.save("fast_td3/robots/H1.py")
+        wandb.save("fast_td3/robots/graph_builder.py")
 
 
 
@@ -195,15 +198,12 @@ def main():
         critic_obs_normalizer = EmpiricalNormalization(
             shape=n_critic_obs, device=device
         )
-        xanchor_normalizer = nn.Identity()
     else:
         obs_normalizer = nn.Identity()
         critic_obs_normalizer = nn.Identity()
-        xanchor_normalizer = nn.Identity()
 
     normalize_obs = obs_normalizer.forward
     normalize_critic_obs = critic_obs_normalizer.forward
-    normalize_xanchor = xanchor_normalizer.forward
 
     # Create the main actor and actor detach (twin actor)
     actor = create_actor(
@@ -293,7 +293,6 @@ def main():
 
         actor.load_state_dict(torch_checkpoint["actor_state_dict"])
         obs_normalizer.load_state_dict(torch_checkpoint["obs_normalizer_state"])
-        xanchor_normalizer.load_state_dict(torch_checkpoint["xanchor_normalizer_state"])
         critic_obs_normalizer.load_state_dict(
             torch_checkpoint["critic_obs_normalizer_state"]
         )
@@ -318,7 +317,6 @@ def main():
                 - average_episode_length: Mean number of steps across all evaluation episodes
         """
         obs_normalizer.eval()
-        xanchor_normalizer.eval()
         num_eval_envs = eval_envs.num_envs
         episode_returns = torch.zeros(num_eval_envs, device=device)
         episode_lengths = torch.zeros(num_eval_envs, device=device)
@@ -335,7 +333,6 @@ def main():
                 device_type=amp_device_type, dtype=amp_dtype, enabled=amp_enabled
             ):
                 obs = normalize_obs(obs)
-                xanchor = normalize_xanchor(xanchor)
                 actions = actor(obs, xanchor)
 
             next_obs, rewards, dones, _, next_xanchor = eval_envs.step(actions.float())
@@ -352,12 +349,10 @@ def main():
             xanchor = next_xanchor
 
         obs_normalizer.train()
-        xanchor_normalizer.train()
         return episode_returns.mean().item(), episode_lengths.mean().item()
 
     def render_with_rollout():
         obs_normalizer.eval()
-        xanchor_normalizer.eval()
 
         # Quick rollout for rendering
         if env_type == "humanoid_bench":
@@ -377,7 +372,6 @@ def main():
                 device_type=amp_device_type, dtype=amp_dtype, enabled=amp_enabled
             ):
                 obs = normalize_obs(obs)
-                xanchor = normalize_xanchor(xanchor)
                 actions = actor(obs, xanchor)
             next_obs, _, done, _, next_xanchor = render_env.step(actions.float())
             if env_type == "mujoco_playground":
@@ -396,7 +390,6 @@ def main():
             renders = render_env.render_trajectory(renders)
 
         obs_normalizer.train()
-        xanchor_normalizer.train()
         return renders
 
     policy_noise = args.policy_noise
@@ -585,7 +578,7 @@ def main():
         policy = torch.compile(policy, mode=mode)
         normalize_obs = torch.compile(normalize_obs, mode=mode)
         normalize_critic_obs = torch.compile(normalize_critic_obs, mode=mode)
-        normalize_xanchor = torch.compile(normalize_xanchor, mode=mode)
+        # normalize_xanchor = torch.compile(normalize_xanchor, mode=mode)
 
     def frames_to_video_html(frames, fps=30):
         """
@@ -655,8 +648,7 @@ def main():
                 obs, xanchor = obs
 
             norm_obs = normalize_obs(obs)
-            norm_xanchor = normalize_xanchor(xanchor)
-            actions = policy(obs=norm_obs, xanchor=norm_xanchor, dones=dones)
+            actions = policy(obs=norm_obs, xanchor=xanchor, dones=dones)
 
         # ENVIRONMENT INTERACTION PHASE
         # Take actions in the environment and collect transition data
@@ -728,8 +720,6 @@ def main():
                 data["next"]["observations"] = normalize_obs(
                     data["next"]["observations"]
                 )
-                data["xanchors"] = normalize_xanchor(data["xanchors"])
-                data["next"]["xanchors"] = normalize_xanchor(data["next"]["xanchors"])
                 if envs.asymmetric_obs:
                     data["critic_observations"] = normalize_critic_obs(
                         data["critic_observations"]
@@ -840,7 +830,6 @@ def main():
                     qnet,
                     qnet_target,
                     obs_normalizer,
-                    xanchor_normalizer,
                     critic_obs_normalizer,
                     args,
                     f"models/{run_name}_{global_step}.pt",
@@ -855,7 +844,6 @@ def main():
         qnet,
         qnet_target,
         obs_normalizer,
-        xanchor_normalizer,
         critic_obs_normalizer,
         args,
         f"models/{run_name}_final.pt",

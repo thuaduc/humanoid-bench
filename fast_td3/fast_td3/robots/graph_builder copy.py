@@ -7,6 +7,7 @@ from fast_td3.robots.h1 import H1
 from fast_td3.robots.g1 import G1
 
 
+@torch.jit.script
 def _quat_conjugate_multiply(q_inv: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
     """
     Specialized function: multiply conjugate of q_inv with q.
@@ -24,6 +25,32 @@ def _quat_conjugate_multiply(q_inv: torch.Tensor, q: torch.Tensor) -> torch.Tens
     z = w1*z2 + x1*y2 - y1*x2 + z1*w2
 
     return torch.stack([w, x, y, z], dim=1)
+
+
+@torch.jit.script
+def _quat_to_6d(q: torch.Tensor) -> torch.Tensor:
+    """
+    Convert quaternion to 6D rotation representation (first two columns of rotation matrix).
+    Expects [w, x, y, z] format.
+    """
+    w, x, y, z = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
+    
+    # Pre-compute common terms to reduce multiplications
+    xx, yy, zz = x * x, y * y, z * z
+    xy, xz, yz = x * y, x * z, y * z
+    xw, yw, zw = x * w, y * w, z * w
+    
+    # First column of rotation matrix
+    r11 = 1 - 2 * (yy + zz)
+    r21 = 2 * (xy + zw)
+    r31 = 2 * (xz - yw)
+    
+    # Second column of rotation matrix
+    r12 = 2 * (xy - zw)
+    r22 = 1 - 2 * (xx + zz)
+    r32 = 2 * (yz + xw)
+    
+    return torch.stack([r11, r21, r31, r12, r22, r32], dim=1)
 
 
 # TODO: this currently works for h1, need to generalize for other robots
@@ -45,12 +72,6 @@ class GraphBuilder:
         self.env_name = env_name
         self.batch_size = batch_size
         self.num_edges = self.robot.joint_connections.__len__()
-        
-        # Pre-allocated identity quaternion [w, x, y, z] = [1, 0, 0, 0]
-        # Using expand() for batch handling to avoid CUDA graph breaking
-        self._identity_quat = torch.tensor(
-            [[1.0, 0.0, 0.0, 0.0]], device=device, dtype=torch.float32
-        )
 
     def generate_input(self, obs: torch.tensor, xanchor: torch.tensor):
         """Generate input with root information as global context."""
@@ -72,12 +93,9 @@ class GraphBuilder:
     def generate_input_object(self, obs: torch.tensor, xanchor: torch.tensor):
         """
         Generates graph inputs for Joints (Equivariant) and Root+Objects (Invariant).
-        Optimized: uses specialized JIT quaternion ops, pre-allocated identity quaternion.
         """
         assert xanchor.shape[1] == 21, f"xanchor shape: {xanchor.shape}"
         assert obs.shape[1] == 64, f"obs shape: {obs.shape}"
-        
-        batch_size = obs.shape[0]
         
         # --- 1. Process Joints ---
         x_joints = (xanchor[:, 1:20] - xanchor[:, [0]]).reshape(-1, 3)
@@ -87,8 +105,12 @@ class GraphBuilder:
         ], dim=1)
 
         # --- 2. Process free base ---
+        # Root relative to itself is Identity. Use pre-allocated tensor.
+        root_quat_rel = _quat_conjugate_multiply(obs[:, 3:7], obs[:, 3:7])  # [batch, 4]
+        root_rot_6d = _quat_to_6d(root_quat_rel)  # [batch, 6]
+
         h_root = torch.cat([
-            obs[:, 3:7],              # [batch, 4] - root quaternion
+            root_rot_6d * 5,            # [batch, 6] - relative rotation (Identity)
             obs[:, 33:39],          # [batch, 6] - root velocities
         ], dim=1)
 
@@ -97,17 +119,17 @@ class GraphBuilder:
         
         # Use specialized JIT function: conjugate multiply in one operation
         obj_quat_rel = _quat_conjugate_multiply(obs[:, 3:7], obj_quat)  # [batch, 4]
-        print(obj_quat_rel)
+        obj_rot_6d = _quat_to_6d(obj_quat_rel)
         
         h_obj = torch.cat([
-            obj_quat_rel,             # [batch, 4] - relative rotation
+            obj_rot_6d * 5,             # [batch, 6] - relative rotation
             obs[:, 58:64]           # [batch, 6] - object velocities
         ], dim=1)
 
         # --- 4. Combine Root and Object ---
-        # h_objects: [batch, 2, 10] -> [batch*2, 10]
-        # Each entity has 10 dims: 4 (quat) + 6 (velocity)
-        h_objects = torch.stack([h_root, h_obj], dim=1).reshape(-1, 10)
+        # h_objects: [batch, 2, 12] -> [batch*2, 12]
+        # Each entity has 12 dims: 6 (rot6d) + 6 (velocity)
+        h_objects = torch.stack([h_root, h_obj], dim=1).reshape(-1, 12)
         x_objects = (xanchor[:, [0, 20]] - xanchor[:, [0]]).reshape(-1, 3)
 
         return h_joints, x_joints, h_objects, x_objects
