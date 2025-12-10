@@ -64,8 +64,8 @@ class CustomObservation:
                 pelvis_quaternion,
                 pelvis_linear_velocity,
                 pelvis_angular_velocity,
-                joint_velocities,
                 joint_positions,
+                joint_velocities,
                 joint_x.flatten(),
             ]
         )
@@ -85,9 +85,9 @@ def unflatten_obs(flat_obs):
     return {
         "pelvis_position": flat_obs[:, 0:3],
         "pelvis_quaternion": flat_obs[:, 3:7],
-        "joint_positions": flat_obs[:, 7:26],
-        "pelvis_linear_velocity": flat_obs[:, 26:29],
-        "pelvis_angular_velocity": flat_obs[:, 29:32],
+        "pelvis_linear_velocity": flat_obs[:, 7:10],
+        "pelvis_angular_velocity": flat_obs[:, 10:13],
+        "joint_positions": flat_obs[:, 13:32],
         "joint_velocities": flat_obs[:, 32:51],
         "joint_x": flat_obs[:, 51:].reshape(flat_obs.shape[0], -1, 3),
     }
@@ -96,9 +96,9 @@ def flatten_obs(obs_dict):
     return torch.cat([
         obs_dict["pelvis_position"],
         obs_dict["pelvis_quaternion"],
-        obs_dict["joint_positions"],
         obs_dict["pelvis_linear_velocity"],
         obs_dict["pelvis_angular_velocity"],
+        obs_dict["joint_positions"],
         obs_dict["joint_velocities"],
         obs_dict["joint_x"].reshape(obs_dict["joint_x"].shape[0], -1),
     ], axis=-1)
