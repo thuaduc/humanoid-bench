@@ -641,7 +641,7 @@ def main():
         obs, critic_obs = envs.reset_with_critic_obs()
         critic_obs = torch.as_tensor(critic_obs, device=device, dtype=torch.float)
     else:
-        obs= envs.reset()
+        obs = envs.reset()
     pbar = tqdm.tqdm(total=args.total_timesteps, initial=global_step)
     dones = None
 
