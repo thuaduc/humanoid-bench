@@ -646,7 +646,7 @@ def main():
     dones = None
 
     while global_step < args.total_timesteps:
-        logs_dict = TensorDict()  # Dictionary to store training metrics for this step
+        logs_dict = {}
 
         # ACTION SELECTION PHASE
         # Use actor_detach (behavioral policy) with exploration noise for data collection

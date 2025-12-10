@@ -81,7 +81,7 @@ class HumanoidBenchEnv:
         self.num_obs = self.envs.observation_space.shape[-1]
         self.num_actions = self.envs.action_space.shape[-1]
 
-    def reset(self):
+    def reset(self, **kwargs):
         """Reset the environment."""
         observations = self.envs.reset()
         observations = torch.from_numpy(observations).to(
