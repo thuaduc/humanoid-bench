@@ -38,7 +38,7 @@ class CustomObservation:
             dtype=np.float64,
         )
 
-    def get_obs(self) -> dict:
+    def get_obs(self) -> np.ndarray:
         """Return observations as a flat vector (matching original implementation)."""
         qpos = self._env.data.qpos.flat.copy()
         qvel = self._env.data.qvel.flat.copy()
