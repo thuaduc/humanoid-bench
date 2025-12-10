@@ -23,7 +23,7 @@ from humanoid_bench.envs.basic_locomotion_envs import Walk, Stand, Run
 
 
 
-class ObservationV2:
+class CustomObservation:
     """Mixin class that provides flat observations with unflatten service for locomotion tasks."""
 
     # Base task name for model_path construction (to be overridden)
@@ -70,19 +70,14 @@ class ObservationV2:
             ]
         )
 
-class Stand(ObservationV2, Stand):
-    """Stand task with dict observations."""
-
+class Stand(CustomObservation, Stand):
     base_task_name = "stand"
 
 
-class Walk(ObservationV2, Walk):
-    """Walk task with dict observations."""
+class Walk(CustomObservation, Walk):
+    base_task_name = "walk"
 
-
-class Run(ObservationV2, Run):
-    """Run task with dict observations."""
-
+class Run(CustomObservation, Run):
     base_task_name = "run"
     
 
