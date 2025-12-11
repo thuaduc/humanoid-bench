@@ -41,6 +41,11 @@ from .envs.basic_locomotion_envs import (
     Stair,
     Slide,
 )
+from .envs.custom_env import (
+    Stand as StandV2,
+    Walk as WalkV2,
+    Run as RunV2
+)
 from .envs.reach import Reach
 from .envs.pole import Pole
 from .envs.push import Push
@@ -64,7 +69,9 @@ DEFAULT_CAMERA_CONFIG = {
 DEFAULT_RANDOMNESS = 0.01
 
 ROBOTS = {"h1": H1, "h1hand": H1Hand, "h1simplehand": H1SimpleHand, "h1strong": H1Strong, "h1touch": H1Touch, "g1": G1}
-TASKS = {
+
+# Original tasks
+_TASKS_ORIGINAL = {
     "stand": Stand,
     "walk": Walk,
     "run": Run,
@@ -99,6 +106,16 @@ TASKS = {
     "powerlift": Powerlift,
 }
 
+# Custom tasks with better naming convention
+TASKS_CUSTOM = {
+    "stand-v1": StandV2,
+    "walk-v1": WalkV2,
+    "run-v1": RunV2,
+}
+
+# Merged tasks dictionary (used by HumanoidEnv)
+TASKS = {**_TASKS_ORIGINAL, **TASKS_CUSTOM}
+
 
 class HumanoidEnv(MujocoEnv, gym.utils.EzPickle):
     metadata = {
@@ -125,7 +142,13 @@ class HumanoidEnv(MujocoEnv, gym.utils.EzPickle):
         if "model_path" in kwargs:
             model_path = kwargs["model_path"]
         else:
-            model_path = f"envs/{robot}_{control}_{task}.xml"
+            # Check if the task has a base_task_name for dict observation tasks
+            task_class = TASKS.get(task) if isinstance(task, str) else task
+            if hasattr(task_class, 'base_task_name') and task_class.base_task_name:
+                base_task = task_class.base_task_name
+                model_path = f"envs/{robot}_{control}_{base_task}.xml"
+            else:
+                model_path = f"envs/{robot}_{control}_{task}.xml"
         
         model_path = os.path.join(asset_path, model_path)
 

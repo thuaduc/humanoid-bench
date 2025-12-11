@@ -1,10 +1,12 @@
 import os
 
+import numpy as np
 import torch
 import torch.nn as nn
 
 from tensordict import TensorDict
 
+from humanoid_bench.envs.custom_env import unflatten_obs, flatten_obs
 
 class SimpleReplayBuffer(nn.Module):
     def __init__(
@@ -443,6 +445,75 @@ class EmpiricalNormalization(nn.Module):
         return y * (self._std + self.eps) + self._mean
 
 
+class StructuredEmpiricalNormalization(nn.Module):
+    """
+    Normalize dict observations with separate normalizers for each feature type.
+
+    This class applies EmpiricalNormalization to each feature type in the observation
+    dict, except for hardcoded features that should not be normalized:
+    - joint_x: Joint anchor coordinates (spatial coordinates)
+    - pelvis_quaternion: Already normalized quaternion representation
+    - pelvis_position: Will be set to [0,0,0] after normalization
+    """
+    
+    # Hardcoded fields that should not be normalized
+    SKIP_KEYS = ["joint_x", "pelvis_quaternion", "pelvis_position"]
+
+    def __init__(self, obs_shapes: dict, device, eps=1e-2, until=None):
+        """Initialize StructuredEmpiricalNormalization module.
+
+        Args:
+            obs_shapes (dict): Dictionary mapping observation keys to their shapes.
+                Example: {"pelvis_position": (3,), "joint_positions": (19,), ...}
+            device: Device to place the normalizers on.
+            eps (float): Small value for stability.
+            until (int or None): If specified, stop learning after this many samples.
+        """
+        super().__init__()
+        self.obs_shapes = obs_shapes
+        self.device = device
+        self.eps = eps
+        self.until = until
+
+        # Create normalizers for each feature type (except hardcoded skip keys)
+        self.normalizers = nn.ModuleDict()
+        for key, shape in obs_shapes.items():
+            if key not in self.SKIP_KEYS:
+                self.normalizers[key] = EmpiricalNormalization(
+                    shape=shape, device=device, eps=eps, until=until
+                )
+
+    def forward(self, x: torch.Tensor, center: bool = True) -> torch.Tensor:
+        """
+        Normalize dict observations.
+
+        Args:
+            x (dict): Dictionary of observation tensors.
+            center (bool): If True, subtract mean. If False, only scale by std.
+
+        Returns:
+            dict: Normalized observations.
+        """
+        
+        x = unflatten_obs(x)
+        
+        for key, value in x.items():
+            if key in self.SKIP_KEYS:
+                continue
+            elif key in self.normalizers:
+                x[key] = self.normalizers[key](value, center=center)
+            else:
+                raise KeyError(f"No normalizer found for key '{key}'")
+
+        return flatten_obs(x)
+    
+    def get_flat_obs_size(self):
+        total = 0
+        for _, shape in self.obs_shapes.items():
+            total += np.prod(shape)
+        return total
+
+
 def cpu_state(sd):
     # detach & move to host without locking the compute stream
     return {k: v.detach().to("cpu", non_blocking=True) for k, v in sd.items()}
@@ -480,6 +551,7 @@ def save_params(
     torch.save(save_dict, save_path, _use_new_zipfile_serialization=True)
     print(f"Saved parameters and configuration to {save_path}")
 
+
 class SimpleReplayBufferGNN(nn.Module):
     def __init__(
         self,
@@ -505,22 +577,10 @@ class SimpleReplayBufferGNN(nn.Module):
         """
         super().__init__()
 
-        if env_name in [
-        "h1-push-v0",
-        "h1-basketball-v0",
-        "h1-package-v0",
-        "h1-sit_hard-v0",
-        "h1-balance_simple-v0",
-        ]: 
-            n_xanchor = 21
-        else:
-            n_xanchor = 20
-
         self.n_env = n_env
         self.buffer_size = buffer_size
         self.n_obs = n_obs
         self.n_act = n_act
-        self.n_xanchor = n_xanchor
         self.n_critic_obs = n_critic_obs
         self.asymmetric_obs = asymmetric_obs
         self.playground_mode = playground_mode and asymmetric_obs
@@ -534,9 +594,6 @@ class SimpleReplayBufferGNN(nn.Module):
         self.actions = torch.zeros(
             (n_env, buffer_size, n_act), device=device, dtype=torch.float
         )
-        self.xanchors = torch.zeros(
-            (n_env, buffer_size, self.n_xanchor, 3), device=device, dtype=torch.float
-        )
         self.rewards = torch.zeros(
             (n_env, buffer_size), device=device, dtype=torch.float
         )
@@ -546,9 +603,6 @@ class SimpleReplayBufferGNN(nn.Module):
         )
         self.next_observations = torch.zeros(
             (n_env, buffer_size, n_obs), device=device, dtype=torch.float
-        )
-        self.next_xanchors = torch.zeros(
-            (n_env, buffer_size, self.n_xanchor, 3), device=device, dtype=torch.float
         )
         if asymmetric_obs:
             if self.playground_mode:
@@ -579,23 +633,19 @@ class SimpleReplayBufferGNN(nn.Module):
         tensor_dict: TensorDict,
     ):
         observations = tensor_dict["observations"]
-        xanchor = tensor_dict["xanchors"]
         actions = tensor_dict["actions"]
         rewards = tensor_dict["next"]["rewards"]
         dones = tensor_dict["next"]["dones"]
         truncations = tensor_dict["next"]["truncations"]
         next_observations = tensor_dict["next"]["observations"]
-        next_xanchor = tensor_dict["next"]["xanchors"]
 
         ptr = self.ptr % self.buffer_size
         self.observations[:, ptr] = observations
-        self.xanchors[:, ptr] = xanchor
         self.actions[:, ptr] = actions
         self.rewards[:, ptr] = rewards
         self.dones[:, ptr] = dones
         self.truncations[:, ptr] = truncations
         self.next_observations[:, ptr] = next_observations
-        self.next_xanchors[:, ptr] = next_xanchor
         if self.asymmetric_obs:
             critic_observations = tensor_dict["critic_observations"]
             next_critic_observations = tensor_dict["next"]["critic_observations"]
@@ -633,9 +683,11 @@ class SimpleReplayBufferGNN(nn.Module):
             actions = torch.gather(self.actions, 1, act_indices).reshape(
                 self.n_env * batch_size, self.n_act
             )
-            env_ids = torch.arange(self.n_env, device=self.device).unsqueeze(1).expand(-1, batch_size)
-            xanchors = self.xanchors[env_ids, indices].reshape(self.n_env * batch_size, self.n_xanchor, 3)
-            next_xanchors = self.next_xanchors[env_ids, indices].reshape(self.n_env * batch_size, self.n_xanchor, 3)
+            env_ids = (
+                torch.arange(self.n_env, device=self.device)
+                .unsqueeze(1)
+                .expand(-1, batch_size)
+            )
             rewards = torch.gather(self.rewards, 1, indices).reshape(
                 self.n_env * batch_size
             )
@@ -691,9 +743,12 @@ class SimpleReplayBufferGNN(nn.Module):
             observations = torch.gather(self.observations, 1, obs_indices).reshape(
                 self.n_env * batch_size, self.n_obs
             )
-            env_ids = torch.arange(self.n_env, device=self.device).unsqueeze(1).expand(-1, batch_size)
-            xanchors = self.xanchors[env_ids, indices].reshape(self.n_env * batch_size, self.n_xanchor, 3)
-            
+            env_ids = (
+                torch.arange(self.n_env, device=self.device)
+                .unsqueeze(1)
+                .expand(-1, batch_size)
+            )
+
             actions = torch.gather(self.actions, 1, act_indices).reshape(
                 self.n_env * batch_size, self.n_act
             )
@@ -844,19 +899,16 @@ class SimpleReplayBufferGNN(nn.Module):
             next_observations = final_next_observations.reshape(
                 self.n_env * batch_size, self.n_obs
             )
-            next_xanchors = self.next_xanchors[env_ids, final_next_obs_indices].reshape(self.n_env * batch_size, self.n_xanchor, 3)
 
         out = TensorDict(
             {
                 "observations": observations,
-                "xanchors": xanchors,
                 "actions": actions,
                 "next": {
                     "rewards": rewards,
                     "dones": dones,
                     "truncations": truncations,
                     "observations": next_observations,
-                    "xanchors": next_xanchors,
                 },
             },
             batch_size=self.n_env * batch_size,
@@ -865,4 +917,3 @@ class SimpleReplayBufferGNN(nn.Module):
             out["critic_observations"] = critic_observations
             out["next"]["critic_observations"] = next_critic_observations
         return out
-
