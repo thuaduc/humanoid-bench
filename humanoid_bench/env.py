@@ -42,9 +42,15 @@ from .envs.basic_locomotion_envs import (
     Slide,
 )
 from .envs.custom_env import (
-    Stand as StandV2,
-    Walk as WalkV2,
-    Run as RunV2
+    Stand as StandV1,
+    Walk as WalkV1,
+    Run as RunV1,
+    Hurdle as HurdleV1,
+    Crawl as CrawlV1,
+    Sit as SitV1,
+    Stair as StairV1,
+    Slide as SlideV1,
+    BalanceSimple as BalanceSimpleV1,
 )
 from .envs.reach import Reach
 from .envs.pole import Pole
@@ -108,9 +114,15 @@ _TASKS_ORIGINAL = {
 
 # Custom tasks with better naming convention
 TASKS_CUSTOM = {
-    "stand-v1": StandV2,
-    "walk-v1": WalkV2,
-    "run-v1": RunV2,
+    "stand-v1": StandV1,
+    "walk-v1": WalkV1,
+    "run-v1": RunV1,
+    "slide-v1": SlideV1,
+    "crawl-v1": CrawlV1,
+    "sit-v1": SitV1,
+    "hurdle-v1": HurdleV1,
+    "balance_simple-v1": BalanceSimpleV1,
+    "stair-v1": StairV1,
 }
 
 # Merged tasks dictionary (used by HumanoidEnv)

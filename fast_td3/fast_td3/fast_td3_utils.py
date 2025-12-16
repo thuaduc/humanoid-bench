@@ -5,8 +5,7 @@ import torch
 import torch.nn as nn
 
 from tensordict import TensorDict
-
-from humanoid_bench.envs.custom_env import unflatten_obs, flatten_obs
+from humanoid_bench.envs.custom_env import flatten_obs, unflatten_obs, get_obs_shapes
 
 class SimpleReplayBuffer(nn.Module):
     def __init__(
@@ -452,32 +451,32 @@ class StructuredEmpiricalNormalization(nn.Module):
     This class applies EmpiricalNormalization to each feature type in the observation
     dict, except for hardcoded features that should not be normalized:
     - joint_x: Joint anchor coordinates (spatial coordinates)
-    - pelvis_quaternion: Already normalized quaternion representation
-    - pelvis_position: Will be set to [0,0,0] after normalization
+    - object_quaternions: Already normalized quaternion representation
+    - object_positions: Will be set to [0,0,0] after normalization
     """
     
     # Hardcoded fields that should not be normalized
-    SKIP_KEYS = ["joint_x", "pelvis_quaternion", "pelvis_position"]
+    SKIP_KEYS = ["joint_x", "object_quaternions", "object_positions"]
 
-    def __init__(self, obs_shapes: dict, device, eps=1e-2, until=None):
+    def __init__(self, env_name: str, device, eps=1e-2, until=None):
         """Initialize StructuredEmpiricalNormalization module.
 
         Args:
-            obs_shapes (dict): Dictionary mapping observation keys to their shapes.
-                Example: {"pelvis_position": (3,), "joint_positions": (19,), ...}
+            env_name (str): Environment name to determine observation structure.
             device: Device to place the normalizers on.
             eps (float): Small value for stability.
             until (int or None): If specified, stop learning after this many samples.
         """
         super().__init__()
-        self.obs_shapes = obs_shapes
+        self.env_name = env_name
         self.device = device
         self.eps = eps
         self.until = until
+        self.obs_shapes = get_obs_shapes(env_name)
 
         # Create normalizers for each feature type (except hardcoded skip keys)
         self.normalizers = nn.ModuleDict()
-        for key, shape in obs_shapes.items():
+        for key, shape in self.obs_shapes.items():
             if key not in self.SKIP_KEYS:
                 self.normalizers[key] = EmpiricalNormalization(
                     shape=shape, device=device, eps=eps, until=until
@@ -488,24 +487,24 @@ class StructuredEmpiricalNormalization(nn.Module):
         Normalize dict observations.
 
         Args:
-            x (dict): Dictionary of observation tensors.
+            x (torch.Tensor): Flat observation tensor.
             center (bool): If True, subtract mean. If False, only scale by std.
 
         Returns:
-            dict: Normalized observations.
+            torch.Tensor: Normalized flat observation tensor.
         """
         
-        x = unflatten_obs(x)
+        x_dict = unflatten_obs(x, self.env_name)
         
-        for key, value in x.items():
+        for key, value in x_dict.items():
             if key in self.SKIP_KEYS:
                 continue
             elif key in self.normalizers:
-                x[key] = self.normalizers[key](value, center=center)
+                x_dict[key] = self.normalizers[key](value, center=center)
             else:
                 raise KeyError(f"No normalizer found for key '{key}'")
 
-        return flatten_obs(x)
+        return flatten_obs(x_dict, self.env_name)
     
     def get_flat_obs_size(self):
         total = 0

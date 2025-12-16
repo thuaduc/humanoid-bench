@@ -11,6 +11,11 @@ env_with_object = [
     "h1-package-v0",  # medium
     "h1-sit_hard-v0",  # hard
     "h1-balance_simple-v0",  # hard
+    "h1-push-v1",  # medium
+    "h1-basketball-v1",  # very hard
+    "h1-package-v1",  # medium
+    "h1-sit_hard-v1",  # hard
+    "h1-balance_simple-v1",  # hard
 ]
 
 env_without_object = [
@@ -215,6 +220,7 @@ class EGNN(nn.Module):
         self.n_layers = n_layers
         self.out_node_nf = out_node_nf
         self.batch_size = batch_size
+        self.env_name = env_name
         self.has_mixed_node_types = env_name in env_with_object
         self.robot = robot
         self.graph_builder = GraphBuilder(env_name, batch_size, device, robot)
@@ -251,7 +257,7 @@ class EGNN(nn.Module):
         self.to(self.device)
     
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        obs = unflatten_obs(obs)    
+        obs = unflatten_obs(obs, self.env_name)    
         
         current_batch_size = obs["joint_velocities"].shape[0]
         edges = self.get_cached_edges(current_batch_size)

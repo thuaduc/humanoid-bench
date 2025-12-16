@@ -37,7 +37,7 @@ class BaseArgs:
     """the learning rate of the critic"""
     actor_learning_rate: float = 3e-4
     """the learning rate for the actor"""
-    buffer_size: int = 1024 * 50
+    buffer_size: int = 1024 * 20
     """the replay memory buffer size"""
     num_steps: int = 1
     """the number of steps to use for the multi-step return"""

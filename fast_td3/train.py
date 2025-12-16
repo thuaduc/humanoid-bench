@@ -146,6 +146,15 @@ def main():
         wandb.save("fast_td3/actors/gnn/egnn_v2.py")
         wandb.save("fast_td3/robots/H1.py")
         wandb.save("fast_td3/robots/graph_builder.py")
+        wandb.save("fast_td3/train.py")
+        try:
+            # Try absolute path to custom_env.py if available
+            import os
+            custom_env_path = os.path.abspath(os.path.join(os.getcwd(), "../humanoid_bench/envs/custom_env.py"))
+            if os.path.exists(custom_env_path):
+                wandb.save(custom_env_path)
+        except Exception as e:
+            print(f"Warning: Could not save custom_env.py to wandb: {e}")
 
 
 
@@ -196,19 +205,9 @@ def main():
 
     if args.obs_normalization:
         if "v1" in terminal_args["env_name"]:
-            print("Use structured normalization")
-            obs_shapes = {
-                "pelvis_position": (3,),
-                "pelvis_quaternion": (4,),
-                "pelvis_linear_velocity": (3,),
-                "pelvis_angular_velocity": (3,),
-                "joint_positions": (19,),
-                "joint_velocities": (19,),
-                "joint_x": (19, 3),
-            }
-            obs_normalizer = StructuredEmpiricalNormalization(obs_shapes=obs_shapes, device=device)
+            obs_normalizer = StructuredEmpiricalNormalization(env_name=terminal_args["env_name"], device=device)
             critic_obs_normalizer = StructuredEmpiricalNormalization(
-                obs_shapes=obs_shapes, device=device
+               env_name=terminal_args["env_name"], device=device
             )
         else:
             obs_normalizer = EmpiricalNormalization(shape=n_obs, device=device)

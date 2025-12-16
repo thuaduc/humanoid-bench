@@ -6,26 +6,6 @@ import torch
 from fast_td3.robots.h1 import H1
 from fast_td3.robots.g1 import G1
 
-
-def _quat_conjugate_multiply(q_inv: torch.Tensor, q: torch.Tensor) -> torch.Tensor:
-    """
-    Specialized function: multiply conjugate of q_inv with q.
-    For unit quaternion, conjugate is just negating imaginary parts.
-    Faster than computing conjugate then multiplying separately.
-    Expects [w, x, y, z] format.
-    """
-    # q_inv_conj = [w, -x, -y, -z]
-    w1, x1, y1, z1 = q_inv[:, 0], -q_inv[:, 1], -q_inv[:, 2], -q_inv[:, 3]
-    w2, x2, y2, z2 = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
-
-    w = w1*w2 - x1*x2 - y1*y2 - z1*z2
-    x = w1*x2 + x1*w2 + y1*z2 - z1*y2
-    y = w1*y2 - x1*z2 + y1*w2 + z1*x2
-    z = w1*z2 + x1*y2 - y1*x2 + z1*w2
-
-    return torch.stack([w, x, y, z], dim=1)
-
-
 # TODO: this currently works for h1, need to generalize for other robots
 class GraphBuilder:
     """Utility to build graph tensors and visualize robot topology."""

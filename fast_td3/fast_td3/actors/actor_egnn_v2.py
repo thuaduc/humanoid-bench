@@ -39,7 +39,7 @@ class ActorEGNN_V2(nn.Module):
         self.egnn = EGNN_V2(
             hidden_nf=hidden_dim,
             in_joint_nf=2,
-            in_object_nf=10 if env_name == "h1-balance_simple-v0" else 6,
+            in_object_nf=10,
             in_edge_nf=0,
             out_node_nf=1,
             batch_size=batch_size,
@@ -64,13 +64,13 @@ class ActorEGNN_V2(nn.Module):
         self.register_buffer("std_max", torch.as_tensor(std_max, device=device))
         self.n_envs = num_envs
 
-    def forward(self, obs, xanchor) -> torch.Tensor:
-        result = self.egnn(obs, xanchor)
+    def forward(self, obs: torch.Tensor) -> torch.Tensor:
+        result = self.egnn(obs)
 
         return result
 
     def explore(
-        self, obs: torch.Tensor, xanchor: torch.Tensor, dones: torch.Tensor = None, deterministic: bool = False
+        self, obs: torch.Tensor, dones: torch.Tensor = None, deterministic: bool = False
     ) -> torch.Tensor:
         # If dones is provided, resample noise for environments that are done
         if dones is not None and dones.sum() > 0:
@@ -85,7 +85,7 @@ class ActorEGNN_V2(nn.Module):
             dones_view = dones.view(-1, 1) > 0
             self.noise_scales = torch.where(dones_view, new_scales, self.noise_scales)
 
-        act = self(obs, xanchor)
+        act = self(obs)
         if deterministic:
             return act
 
