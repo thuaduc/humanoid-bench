@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from fast_td3.actors.gnn.egnn import env_with_object
+from fast_td3.actors.gnn.egcl import env_with_object
 from fast_td3.actors.gnn.egnn_v2 import EGNN_V2
 
 

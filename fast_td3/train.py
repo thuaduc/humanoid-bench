@@ -583,8 +583,14 @@ def main():
         scaler.step(actor_optimizer)
         scaler.update()
 
+        # Compute ||theta|| (L2 norm of all parameters)
+        actor_param_norm = torch.sqrt(
+            sum(p.data.norm()**2 for p in actor.parameters())
+        )
+
         # Log training metrics
         logs_dict["actor_grad_norm"] = actor_grad_norm.detach()
+        logs_dict["actor_param_norm"] = actor_param_norm.detach()  # <-- new line
         logs_dict["actor_loss"] = actor_loss.detach()
         return logs_dict
 
@@ -774,6 +780,7 @@ def main():
                         "qf_max": logs_dict["qf_max"].mean(),
                         "qf_min": logs_dict["qf_min"].mean(),
                         "actor_grad_norm": logs_dict["actor_grad_norm"].mean(),
+                        "actor_param_norm": logs_dict["actor_param_norm"].mean(),
                         "critic_grad_norm": logs_dict["critic_grad_norm"].mean(),
                         "buffer_rewards": logs_dict["buffer_rewards"].mean(),
                         "env_rewards": rewards.mean(),
