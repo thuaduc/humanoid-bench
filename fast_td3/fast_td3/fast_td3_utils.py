@@ -445,18 +445,7 @@ class EmpiricalNormalization(nn.Module):
 
 
 class StructuredEmpiricalNormalization(nn.Module):
-    """
-    Normalize dict observations with separate normalizers for each feature type.
-
-    This class applies EmpiricalNormalization to each feature type in the observation
-    dict, except for hardcoded features that should not be normalized:
-    - joint_x: Joint anchor coordinates (spatial coordinates)
-    - object_quaternions: Already normalized quaternion representation
-    - object_positions: Will be set to [0,0,0] after normalization
-    """
-    
-    # Hardcoded fields that should not be normalized
-    SKIP_KEYS = ["joint_x", "object_quaternions", "object_positions"]
+    SKIP_KEYS = ["joint_x", "object_positions"]
 
     def __init__(self, env_name: str, device, eps=1e-2, until=None):
         """Initialize StructuredEmpiricalNormalization module.

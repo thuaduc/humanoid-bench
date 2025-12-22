@@ -51,6 +51,7 @@ from .envs.custom_env import (
     Stair as StairV1,
     Slide as SlideV1,
     BalanceSimple as BalanceSimpleV1,
+    SitHard as SitHardV1,
 )
 from .envs.reach import Reach
 from .envs.pole import Pole
@@ -123,6 +124,8 @@ TASKS_CUSTOM = {
     "hurdle-v1": HurdleV1,
     "balance_simple-v1": BalanceSimpleV1,
     "stair-v1": StairV1,
+    "sit_simple-v1": SitV1,
+    "sit_hard-v1": SitHardV1,
 }
 
 # Merged tasks dictionary (used by HumanoidEnv)
@@ -259,6 +262,12 @@ class HumanoidEnv(MujocoEnv, gym.utils.EzPickle):
         )
 
     def step(self, action):
+        # print("world", self.data.xquat[0], self.data.xpos[0])
+        # print("pelvis", self.data.xquat[1], self.data.xpos[1])
+        # print("torso", self.data.xquat[12], self.data.xpos[12])
+        # print("board", self.data.xquat[23], self.data.xpos[23])
+        # print()
+        
         return self.task.step(action)
 
     def reset(self, *, seed=None, options=None):

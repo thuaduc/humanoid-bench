@@ -10,7 +10,7 @@ if sys.platform != "darwin":
     os.environ["MUJOCO_GL"] = "egl"
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["JAX_DEFAULT_MATMUL_PRECISION"] = "highest"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 import random
 import tqdm
 import wandb
@@ -33,7 +33,7 @@ from fast_td3.fast_td3_utils import (
 from fast_td3 import Critic
 
 from fast_td3.train_utils import create_actor, collect_gradient_stats
-from fast_td3.hyperparams import HumanoidBenchArgs
+from fast_td3.hyperparams import HumanoidBenchArgs, HumanoidBenchV1Args
 import argparse
 from fast_td3.environments.humanoid_bench_env import HumanoidBenchEnv
 from IPython.display import display, HTML
@@ -50,7 +50,7 @@ def main():
         type=str,
         default="egnn",
         help="The kind of actor to use.",
-        choices=["egnn", "egnn_v2", "mlp"],
+        choices=["egnn", "egnn_v2", "egnn_v3", "mlp"],
     )
     parser.add_argument("--env_name", type=str, default="h1-stand-v0")
     parser.add_argument(
@@ -74,7 +74,7 @@ def main():
     parser.add_argument(
         "--num_envs",
         type=int,
-        default=16,
+        default=32,
         help="Number of parallel environments to use.",
     )
     parser.add_argument(
@@ -107,8 +107,13 @@ def main():
             model_kwargs = json.load(f)
     else:
         model_kwargs = {}
+        
+    if terminal_args["actor"].startswith("egnn"):
+        ArgsCls = HumanoidBenchV1Args
+    else:
+        ArgsCls = HumanoidBenchArgs
 
-    args = HumanoidBenchArgs(
+    args = ArgsCls(
         env_name=terminal_args["env_name"],
         total_timesteps=terminal_args["total_timesteps"],
         render_interval=terminal_args["render_interval"],
@@ -643,7 +648,7 @@ def main():
         critic_obs = torch.as_tensor(critic_obs, device=device, dtype=torch.float)
     else:
         obs = envs.reset()
-    pbar = tqdm.tqdm(total=args.total_timesteps, initial=global_step)
+    pbar = tqdm.tqdm(total=args.total_timesteps, initial=global_step, mininterval=120)
     dones = None
 
     while global_step < args.total_timesteps:

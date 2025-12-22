@@ -208,7 +208,7 @@ def create_actor(
     Helper function to create an actor based on the specified type.
 
     Args:
-        actor_type (str): Type of actor ("egnn", "mlp")
+        actor_type (str): Type of actor ("egnn", "egnn_v2", "egnn_v3", "mlp")
         n_obs (int): Number of observations
         n_act (int): Number of actions
         num_envs (int): Number of environments
@@ -228,6 +228,7 @@ def create_actor(
     from fast_td3.actors import (
         ActorEGNN,
         ActorEGNN_V2,
+        ActorEGNN_V3,
         Actor,
     )
     
@@ -247,6 +248,14 @@ def create_actor(
             env_name=env_name,
             **model_kwargs,
         )
+    elif actor_type == "egnn_v3":
+        return ActorEGNN_V3(
+            num_envs=num_envs,
+            batch_size=batch_size,
+            device=device,
+            env_name=env_name,
+            **model_kwargs,
+        )
     elif actor_type == "mlp":
         return Actor(
             n_obs=n_obs,
@@ -258,5 +267,5 @@ def create_actor(
         )
     else:
         raise ValueError(
-            f"Unsupported actor type: {actor_type}. Supported types are: egnn, egnn_v2, mlp."
+            f"Unsupported actor type: {actor_type}. Supported types are: egnn, egnn_v2, egnn_v3, mlp."
         )
