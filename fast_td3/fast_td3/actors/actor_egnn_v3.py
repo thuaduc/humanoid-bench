@@ -39,8 +39,7 @@ class ActorEGNN_V3(nn.Module):
         self.egnn = EGNN_V3(
             hidden_nf=hidden_dim,
             in_joint_nf=2,
-            in_object_nf=12,
-            in_edge_nf=0,
+            in_object_nf=10,
             out_node_nf=1,
             batch_size=batch_size,
             device=device,

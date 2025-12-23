@@ -37,7 +37,7 @@ class BaseArgs:
     """the learning rate of the critic"""
     actor_learning_rate: float = 3e-4
     """the learning rate for the actor"""
-    buffer_size: int = 1024 * 20
+    buffer_size: int = 1024 * 50
     """the replay memory buffer size"""
     num_steps: int = 1
     """the number of steps to use for the multi-step return"""
@@ -71,7 +71,7 @@ class BaseArgs:
     """the maximum value of the support"""
     critic_hidden_dim: int = 1024
     """the hidden dimension of the critic network"""
-    actor_hidden_dim: int = 480
+    actor_hidden_dim: int = 512
     """the hidden dimension of the actor network"""
     use_cdq: bool = True
     """whether to use Clipped Double Q-learning"""
@@ -187,26 +187,8 @@ class HumanoidBenchArgs(BaseArgs):
 class HumanoidBenchV1Args(HumanoidBenchArgs):
     # Hyperparameters optimized for v1 tasks (custom_env variants with alternative locomotion implementations)
     # These are tuned for tasks with different physics and control dynamics
-    actor_learning_rate: float = 1e-4
-    """the learning rate for the actor"""
-    buffer_size: int = 1024 * 10
-    """the replay memory buffer size"""
-    tau: float = 0.005
-    """target smoothing coefficient (default: 0.005)"""
-    policy_noise: float = 0.0001
-    """the scale of policy noise"""
-    policy_frequency: int = 4
-    """the frequency of training policy (delayed)"""
-    num_updates: int = 4
-    """the number of updates to perform per step"""
-    critic_hidden_dim: int = 1024
-    """the hidden dimension of the critic network"""
-    actor_hidden_dim: int = 480
-    """the hidden dimension of the actor network"""
-    amp_dtype: str = "f16"
-    """the dtype of the amp"""
-    weight_decay: float = 0.001
-    """the weight decay of the optimizer"""
+    buffer_size: int = 1024 * 25
+    batch_size: int = 8912
 
 
 @dataclass
