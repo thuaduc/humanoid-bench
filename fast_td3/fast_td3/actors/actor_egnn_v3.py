@@ -23,6 +23,8 @@ class ActorEGNN_V3(nn.Module):
         coords_agg: str = "mean",
         normalize: bool = False,
         tanh: bool = False,
+        residual: bool = True,
+        coord_norm: bool = False,
     ):
         super().__init__()
         match act_fn:
@@ -39,7 +41,7 @@ class ActorEGNN_V3(nn.Module):
         self.egnn = EGNN_V3(
             hidden_nf=hidden_dim,
             in_joint_nf=2,
-            in_object_nf=10,
+            in_object_nf=13,
             out_node_nf=1,
             batch_size=batch_size,
             device=device,
@@ -51,6 +53,8 @@ class ActorEGNN_V3(nn.Module):
             normalize=normalize,
             tanh=tanh,
             env_name=env_name,
+            residual=residual,
+            coord_norm=coord_norm
         )
 
         # Initialize noise parameters

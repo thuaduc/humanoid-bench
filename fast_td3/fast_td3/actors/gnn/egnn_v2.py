@@ -2,7 +2,7 @@ from torch import nn
 import torch
 
 from fast_td3.robots.graph_builder import GraphBuilder
-from fast_td3.actors.gnn.egcl import E_GCL, E_GCL_2, env_with_object
+from fast_td3.actors.gnn.egcl import E_GCL, E_GCL_2, E_GCL_DualModel, env_with_object
 from humanoid_bench.envs.custom_env import unflatten_obs
 
 
@@ -33,6 +33,7 @@ class EGNN_V2(nn.Module):
         normalize=False,
         tanh=False,
         coords_agg="mean",
+        coord_norm=False,
     ):
         """
         :param in_joint_nf: Number of features for joint nodes (velocity + position)
@@ -72,9 +73,9 @@ class EGNN_V2(nn.Module):
         self._cross_edges_cache = {}
 
         # Joint graph layers (message passing within joints)
-        self.joint_layers = nn.ModuleList(
+        self.layers = nn.ModuleList(
             [
-                E_GCL(
+                E_GCL_DualModel(
                     self.hidden_nf,
                     self.hidden_nf,
                     self.hidden_nf,
@@ -83,20 +84,12 @@ class EGNN_V2(nn.Module):
                     residual=residual,
                     attention=attention,
                     normalize=normalize,
-                    tanh=tanh,
                     coords_agg=coords_agg,
+                    tanh=tanh,
+                    coord_norm=coord_norm,
                 )
                 for _ in range(n_layers)
             ]
-        )
-        # Cross-graph layer: object → joint (unidirectional)
-        self.cross_layer = E_GCL_2(
-            self.hidden_nf,
-            self.hidden_nf,
-            self.hidden_nf * 2,
-            edges_in_d=in_edge_nf,
-            act_fn=act_fn,
-            attention=attention,
         )
 
         # Input embeddings
@@ -120,7 +113,7 @@ class EGNN_V2(nn.Module):
 
         # shapes / edges
         current_batch_size = obs["joint_velocities"].shape[0]
-        num_objects = obs["object_positions"].shape[1]
+        num_objects = obs["object_x"].shape[1]
 
         joint_edges = self.get_cached_joint_edges(current_batch_size)
         cross_edges = self.get_cached_cross_edges(current_batch_size, num_objects)
@@ -142,31 +135,24 @@ class EGNN_V2(nn.Module):
         )
         x_joints = obs["joint_x"].reshape(-1, 3)
         h_objects = h_objects.reshape(current_batch_size * num_objects, -1)
-        x_objects = obs["object_positions"].reshape(current_batch_size * num_objects, 3)
+        x_objects = obs["object_x"].reshape(current_batch_size * num_objects, 3)
 
         h_joints = self.joint_embedding_in(h_joints)
         h_objects = self.object_embedding(h_objects)
 
-        f_fact = h_joints  # SAVE PRE-LOCAL VERSION
-
-        h_cross = torch.cat([f_fact, h_objects], dim=0)
-        x_cross = torch.cat([x_joints, x_objects], dim=0)
-        h_cross = self.cross_layer(
-            h=h_cross,
-            edge_index=cross_edges,
-            coord=x_cross,
-        )
-
-        h_joints = f_fact
-        for layer in self.joint_layers:
-            h_joints, x_joints, _ = layer(
-                h=h_joints,
-                edge_index=joint_edges,
-                coord=x_joints,
+        # Message passing: joint layers + cross-graph layers per layer
+        h_combined = torch.cat([h_joints, h_objects], dim=0)
+        x_combined = torch.cat([x_joints, x_objects], dim=0)
+        
+        for layer in self.layers:
+            h_combined, x_combined, _ = layer(
+                h=h_combined,
+                edge_index_joint=joint_edges,
+                edge_index_cross=cross_edges,
+                coord=x_combined,
             )
 
-        h_final = h_joints + h_cross[: f_fact.shape[0]]
-        actions = self.joint_embedding_out(h_final)
+        actions = self.joint_embedding_out(h_combined[: current_batch_size * self.num_joints])
 
         return actions.reshape(current_batch_size, self.num_joints)
 
@@ -201,12 +187,9 @@ class EGNN_V2(nn.Module):
         src_obj_to_joint = objs_expanded.flatten()
         dst_obj_to_joint = joints_expanded.flatten()
         
-        # Bidirectional: Add Joint -> Object
-        src_joint_to_obj = dst_obj_to_joint
-        dst_joint_to_obj = src_obj_to_joint
-        
-        src = torch.cat([src_obj_to_joint, src_joint_to_obj])
-        dst = torch.cat([dst_obj_to_joint, dst_joint_to_obj])
+        # Unidirectional only: Object -> Joint
+        src = src_obj_to_joint
+        dst = dst_obj_to_joint
 
         return torch.stack([src, dst])
     

@@ -445,7 +445,7 @@ class EmpiricalNormalization(nn.Module):
 
 
 class StructuredEmpiricalNormalization(nn.Module):
-    SKIP_KEYS = ["joint_x", "object_positions"]
+    SKIP_KEYS = ["joint_x"]
 
     def __init__(self, env_name: str, device, eps=1e-2, until=None):
         """Initialize StructuredEmpiricalNormalization module.

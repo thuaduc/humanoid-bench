@@ -23,6 +23,8 @@ class ActorEGNN_V2(nn.Module):
         coords_agg: str = "mean",
         normalize: bool = False,
         tanh: bool = False,
+        residual: bool = True,
+        coord_norm: bool = False,
     ):
         super().__init__()
         match act_fn:
@@ -52,6 +54,8 @@ class ActorEGNN_V2(nn.Module):
             normalize=normalize,
             tanh=tanh,
             env_name=env_name,
+            residual=residual,
+            coord_norm=coord_norm,
         )
 
         # Initialize noise parameters

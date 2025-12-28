@@ -3,6 +3,8 @@ import torch
 
 from fast_td3.robots.graph_builder import GraphBuilder
 from fast_td3.actors.gnn.egcl import E_GCL, env_with_object
+from fast_td3.actors.gnn.encoder import MultiObjectGeometricEncoder
+from fast_td3.fast_td3_utils import EmpiricalNormalization
 from humanoid_bench.envs.custom_env import unflatten_obs
 
 
@@ -32,6 +34,7 @@ class EGNN_V3(nn.Module):
         normalize=False,
         tanh=False,
         coords_agg="mean",
+        coord_norm=False,
     ):
         """
         :param in_joint_nf: Number of features for joint nodes (velocity + position)
@@ -57,14 +60,15 @@ class EGNN_V3(nn.Module):
         self.batch_size = batch_size
         self.env_name = env_name
         self.robot = robot
+        self.in_object_nf = in_object_nf
         self.graph_builder = GraphBuilder(env_name, batch_size, device, robot)
         self.num_joints = self.graph_builder.robot.num_joints
         self.num_objects = 2 if self.env_name in env_with_object else 1
         self._joint_edges_cache = {}
         
-        self.joint_out_dim = 2
+        self.joint_out_dim = 8
         
-        self.joint_object_dim = self.joint_out_dim * self.num_joints + self.num_objects * in_object_nf
+        self.joint_object_dim = self.joint_out_dim * self.num_joints + self.in_object_nf * self.num_objects
 
         # Joint graph layers (message passing within joints)
         self.joint_layers = nn.ModuleList(
@@ -80,6 +84,7 @@ class EGNN_V3(nn.Module):
                     normalize=normalize,
                     tanh=tanh,
                     coords_agg=coords_agg,
+                    coord_norm=coord_norm,
                 )
                 for _ in range(n_layers)
             ]
@@ -88,9 +93,11 @@ class EGNN_V3(nn.Module):
         self.joint_object_mlp = nn.Sequential(
             nn.Linear(self.joint_object_dim, self.hidden_nf * 4),
             act_fn,
-            nn.Linear(self.hidden_nf * 4, self.hidden_nf * 2),
+            nn.Linear(self.hidden_nf * 4, self.hidden_nf  * 2),
             act_fn,
-            nn.Linear(self.hidden_nf * 2, self.num_joints),
+            nn.Linear(self.hidden_nf * 2, self.hidden_nf),
+            act_fn,
+            nn.Linear(self.hidden_nf, self.num_joints),
             nn.Tanh(),
         )
 
@@ -103,6 +110,9 @@ class EGNN_V3(nn.Module):
             nn.Linear(self.hidden_nf, self.joint_out_dim), act_fn
         )
 
+        # Learnable scale for object features
+        self.object_scale = nn.Parameter(torch.tensor(1.0))
+
         self.to(self.device)
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
@@ -113,19 +123,16 @@ class EGNN_V3(nn.Module):
         # joint inputs
         h_joints = torch.stack([obs["joint_velocities"].reshape(-1), obs["joint_positions"].reshape(-1),], dim=1)
         h_joints = self.joint_embedding_in(h_joints)
-        x_joints = obs["joint_x"].reshape(-1, 3) / 8 # normalize positions
+        x_joints = obs["joint_x"].reshape(-1, 3)
         
         h_objects = torch.cat(
-            [obs["object_quaternions"],obs["object_velocities"],],dim=-1,
-        ).reshape(current_batch_size, -1)    
+            [obs["object_x"], obs["object_quaternions"], obs["object_velocities"]],dim=-1,
+        ).reshape(current_batch_size, -1)
+        h_objects = h_objects * self.object_scale  # Apply learnable scale    
 
         # Message passing within joints
         for layer in self.joint_layers:
-            h_joints, x_joints, _ = layer(
-                h=h_joints,
-                edge_index=joint_edges,
-                coord=x_joints,
-            )
+            h_joints, x_joints, _ = layer(h=h_joints, edge_index=joint_edges, coord=x_joints)
 
         h_joints = self.joint_embedding_out(h_joints)
         

@@ -6,7 +6,7 @@ but provide an unflatten_obs service to convert to dict format when needed
 for normalization and actor processing.
 
 The observation dict (when unflattened) includes:
-- object_positions: Root position (x, y, z)
+- object_x: Root position (x, y, z)
 - object_quaternions: Root quaternion (w, x, y, z)
 - object_velocities: Root linear and angular velocities (vx, vy, vz, wx, wy, wz)
 - joint_positions: Joint angles
@@ -54,6 +54,8 @@ class CustomObservation:
         qpos = self._env.data.qpos.flat.copy()
         qvel = self._env.data.qvel.flat.copy()
         xanchor = self._env.data.xanchor.copy()
+        xanchor = xanchor / 8 # normalize positions
+
 
         # Extract pelvis state (free joint)
         pelvis_position = np.array([0.0, 0.0, 0.0])  # x, y, z
@@ -92,7 +94,7 @@ class CustomObservation:
             Dictionary mapping observation keys to their shapes
         """
         return {
-            "object_positions": (num_objects, 3),
+            "object_x": (num_objects, 3),
             "object_quaternions": (num_objects, 4),
             "object_velocities": (num_objects, 6),
             "joint_positions": (num_joints,),
@@ -119,7 +121,7 @@ class CustomObservation:
             num_joints = cls.num_joints if hasattr(cls, 'num_joints') else 19
             
         return {
-            "object_positions": flat_obs[:, 0:3].reshape(-1, num_objects, 3),
+            "object_x": flat_obs[:, 0:3].reshape(-1, num_objects, 3),
             "object_quaternions": flat_obs[:, 3:7].reshape(-1, num_objects, 4),
             "object_velocities": flat_obs[:, 7:13].reshape(-1, num_objects, 6),
             "joint_positions": flat_obs[:, 13:32],
@@ -140,8 +142,8 @@ class CustomObservation:
         """
         return torch.cat(
             [
-                obs_dict["object_positions"].reshape(
-                    obs_dict["object_positions"].shape[0], -1
+                obs_dict["object_x"].reshape(
+                    obs_dict["object_x"].shape[0], -1
                 ),
                 obs_dict["object_quaternions"].reshape(
                     obs_dict["object_quaternions"].shape[0], -1
@@ -211,32 +213,35 @@ class BalanceSimple(CustomObservation, BalanceSimple):
         qvel = self._env.data.qvel.flat.copy()
         xanchor = self._env.data.xanchor.copy()
         
-        xanchor = xanchor[:, :] - xanchor[0, :]
+        xanchor = (xanchor[:, :] - xanchor[0, :]) / 8 # normalize positions
 
-        # Get pelvis state using named access
-        pelvis_position = xanchor[0, :]  # x, y, z
-        board_position = xanchor[20, :]  # x, y, z
+        # Get pelvis and board states
+        pelvis_x = xanchor[0, :]  # x, y, z
+        board_x = xanchor[20, :]  # x, y, z
+        object_x = np.stack([pelvis_x, board_x])  # (2, 3)
         
         pelvis_quaternion = qpos[3:7]
         board_quaternion = qpos[29:33]
+        object_quaternions = np.stack([pelvis_quaternion, board_quaternion])  # (2, 4)
+
+        # Extract velocities for both objects
+        pelvis_velocities = qvel[0:6]  # (6,)
+        board_velocities = qvel[25:31]  # (6,)
+        object_velocities = np.stack([pelvis_velocities, board_velocities])  # (2, 6)
 
         joint_positions = qpos[7:26]
         joint_velocities = qvel[6:25]
         joint_x = xanchor[1:20, :]
 
-        object_velocities = np.concatenate([qvel[0:6], qvel[25:31]])
-
         # Concatenate into flat vector
         return np.concatenate(
             [
-                pelvis_position,
-                board_position,
-                pelvis_quaternion,
-                board_quaternion,
-                object_velocities,
-                joint_positions,
-                joint_velocities,
-                joint_x.flatten(),
+                object_x.flatten(),       # (6,)
+                object_quaternions.flatten(),     # (8,)
+                object_velocities.flatten(),      # (12,)
+                joint_positions,                   # (19,)
+                joint_velocities,                  # (19,)
+                joint_x.flatten(),                 # (57,)
             ]
         )
 
@@ -253,7 +258,7 @@ class BalanceSimple(CustomObservation, BalanceSimple):
             Dictionary mapping observation keys to their shapes
         """
         return {
-            "object_positions": (num_objects, 3),
+            "object_x": (num_objects, 3),
             "object_quaternions": (num_objects, 4),
             "object_velocities": (num_objects, 6),
             "joint_positions": (num_joints,),
@@ -292,7 +297,7 @@ class BalanceSimple(CustomObservation, BalanceSimple):
             num_joints = cls.num_joints if hasattr(cls, 'num_joints') else 19
             
         return {
-            "object_positions": flat_obs[:, 0:6].reshape(-1, num_objects, 3),
+            "object_x": flat_obs[:, 0:6].reshape(-1, num_objects, 3),
             "object_quaternions": flat_obs[:, 6:14].reshape(-1, num_objects, 4),
             "object_velocities": flat_obs[:, 14:26].reshape(-1, num_objects, 6),
             "joint_positions": flat_obs[:, 26:45],
@@ -313,8 +318,8 @@ class BalanceSimple(CustomObservation, BalanceSimple):
         """
         return torch.cat(
             [
-                obs_dict["object_positions"].reshape(
-                    obs_dict["object_positions"].shape[0], -1
+                obs_dict["object_x"].reshape(
+                    obs_dict["object_x"].shape[0], -1
                 ),
                 obs_dict["object_quaternions"].reshape(
                     obs_dict["object_quaternions"].shape[0], -1
@@ -348,7 +353,7 @@ class SitHard(CustomObservation, SitHard):
         qvel = self._env.data.qvel.flat.copy()
         xanchor = self._env.data.xanchor.copy()
         
-        xanchor = xanchor[:, :] - xanchor[0, :]
+        xanchor = (xanchor[:, :] - xanchor[0, :]) / 8 # normalize positions 
 
         # Get pelvis state using named access
         pelvis_position = xanchor[0, :]  # x, y, z
@@ -390,7 +395,7 @@ class SitHard(CustomObservation, SitHard):
             Dictionary mapping observation keys to their shapes
         """
         return {
-            "object_positions": (num_objects, 3),
+            "object_x": (num_objects, 3),
             "object_quaternions": (num_objects, 4),
             "object_velocities": (num_objects, 6),
             "joint_positions": (num_joints,),
@@ -429,7 +434,7 @@ class SitHard(CustomObservation, SitHard):
             num_joints = cls.num_joints if hasattr(cls, 'num_joints') else 19
             
         return {
-            "object_positions": flat_obs[:, 0:6].reshape(-1, num_objects, 3),
+            "object_x": flat_obs[:, 0:6].reshape(-1, num_objects, 3),
             "object_quaternions": flat_obs[:, 6:14].reshape(-1, num_objects, 4),
             "object_velocities": flat_obs[:, 14:26].reshape(-1, num_objects, 6),
             "joint_positions": flat_obs[:, 26:45],
@@ -450,8 +455,8 @@ class SitHard(CustomObservation, SitHard):
         """
         return torch.cat(
             [
-                obs_dict["object_positions"].reshape(
-                    obs_dict["object_positions"].shape[0], -1
+                obs_dict["object_x"].reshape(
+                    obs_dict["object_x"].shape[0], -1
                 ),
                 obs_dict["object_quaternions"].reshape(
                     obs_dict["object_quaternions"].shape[0], -1

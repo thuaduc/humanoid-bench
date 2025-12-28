@@ -1,7 +1,7 @@
 from torch import nn
 import torch
 
-from fast_td3.actors.gnn.egcl import E_GCL
+from fast_td3.actors.gnn.egcl import E_GCL, env_with_object
 from fast_td3.robots.graph_builder import GraphBuilder
 from humanoid_bench.envs.custom_env import unflatten_obs
 
