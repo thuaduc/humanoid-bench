@@ -20,18 +20,20 @@ import numpy as np
 from gymnasium.spaces import Box, Dict
 
 from humanoid_bench.envs.basic_locomotion_envs import (
-    Walk,
-    Stand,
-    Run,
-    Crawl,
-    ClimbingUpwards,
-    Stair,
-    Slide,
-    Hurdle,
-    Sit,
-    SitHard,
+    Walk as WalkV0,
+    Stand as StandV0,
+    Run as RunV0,
+    Crawl as CrawlV0,
+    ClimbingUpwards as ClimbingUpwardsV0,
+    Stair as StairV0,
+    Slide as SlideV0,
+    Hurdle as HurdleV0,
+    Sit as SitV0,
+    SitHard as SitHardV0,
 )
-from humanoid_bench.envs.balance import BalanceSimple
+from humanoid_bench.envs.balance import BalanceSimple as BalanceSimpleV0
+from humanoid_bench.envs.reach import Reach as ReachV0
+from humanoid_bench.envs.push import Push as PushV0
 
 
 class CustomObservation:
@@ -159,43 +161,43 @@ class CustomObservation:
         )
 
 
-class Stand(CustomObservation, Stand):
+class Stand(CustomObservation, StandV0):
     base_task_name = "stand"
 
 
-class Walk(CustomObservation, Walk):
+class Walk(CustomObservation, WalkV0):
     base_task_name = "walk"
 
 
-class Run(CustomObservation, Run):
+class Run(CustomObservation, RunV0):
     base_task_name = "run"
 
 
-class Crawl(CustomObservation, Crawl):
+class Crawl(CustomObservation, CrawlV0):
     base_task_name = "crawl"
 
 
-class ClimbingUpwards(CustomObservation, ClimbingUpwards):
+class ClimbingUpwards(CustomObservation, ClimbingUpwardsV0):
     base_task_name = "climbing_upwards"
 
 
-class Stair(CustomObservation, Stair):
+class Stair(CustomObservation, StairV0):
     base_task_name = "stair"
 
 
-class Slide(CustomObservation, Slide):
+class Slide(CustomObservation, SlideV0):
     base_task_name = "slide"
 
 
-class Hurdle(CustomObservation, Hurdle):
+class Hurdle(CustomObservation, HurdleV0):
     base_task_name = "hurdle"
 
 
-class Sit(CustomObservation, Sit):
+class Sit(CustomObservation, SitV0):
     base_task_name = "sit_simple"
 
 
-class BalanceSimple(CustomObservation, BalanceSimple):
+class BalanceSimple(CustomObservation, BalanceSimpleV0):
     base_task_name = "balance_simple"
     num_objects = 2
     
@@ -335,7 +337,7 @@ class BalanceSimple(CustomObservation, BalanceSimple):
         )
 
 
-class SitHard(CustomObservation, SitHard):
+class SitHard(CustomObservation, SitHardV0):
     base_task_name = "sit_hard"
     num_objects = 2
     
@@ -473,6 +475,287 @@ class SitHard(CustomObservation, SitHard):
 
 
 
+class Reach(CustomObservation, ReachV0):
+    base_task_name = "reach"
+    num_objects = 1
+    
+    @property
+    def observation_space(self):
+        return Box(
+            low=-np.inf,
+            high=np.inf,
+            shape=(114,),
+            dtype=np.float64,
+        )
+
+    def get_obs(self) -> np.ndarray:
+        qpos = self._env.data.qpos.flat.copy()
+        qvel = self._env.data.qvel.flat.copy()
+        xanchor = self._env.data.xanchor.copy()
+        
+        xanchor = (xanchor[:, :] - xanchor[0, :]) / 8  # normalize positions
+        
+        # Get pelvis position
+        pelvis_position = xanchor[0, :]
+        pelvis_quaternion = qpos[3:7]
+        pelvis_velocities = qvel[0:6]
+        
+        # Get left hand position
+        left_hand_position = self.robot.left_hand_position()
+        
+        # Use all joints (19 locomotion joints)
+        joint_positions = qpos[7:26]
+        joint_velocities = qvel[6:25]
+        joint_x = xanchor[1:20, :]
+        
+        # Get object_others: left_hand and target
+        object_others = np.concatenate([
+            left_hand_position,  # (3,)
+            self.goal.copy()  # (3,)
+        ])
+        
+        # Concatenate into flat vector
+        return np.concatenate(
+            [
+                pelvis_position,
+                pelvis_quaternion,
+                pelvis_velocities,
+                object_others,
+                joint_positions,
+                joint_velocities,
+                joint_x.flatten(),
+            ]
+        )
+
+    @staticmethod
+    def get_obs_shapes(num_objects=1, num_joints=19):
+        """
+        Get observation shape dictionary for Reach.
+        
+        Args:
+            num_objects: Number of objects (default: 1)
+            num_joints: Number of joints (default: 19)
+            
+        Returns:
+            Dictionary mapping observation keys to their shapes
+        """
+        return {
+            "object_x": (num_objects, 3),
+            "object_quaternions": (num_objects, 4),
+            "object_velocities": (num_objects, 6),
+            "object_others": (6,),
+            "joint_positions": (num_joints,),
+            "joint_velocities": (num_joints,),
+            "joint_x": (num_joints, 3),
+        }
+
+    @classmethod
+    def unflatten_obs(cls, flat_obs, num_objects=None, num_joints=None):
+        """
+        Convert flat observation to dictionary format for Reach.
+        
+        Args:
+            flat_obs: Flat observation tensor of shape (batch_size, 114)
+            num_objects: Number of objects (default: 1)
+            num_joints: Number of joints (default: 19)
+            
+        Returns:
+            Dictionary with observation components
+        """
+        if num_objects is None:
+            num_objects = cls.num_objects if hasattr(cls, 'num_objects') else 1
+        if num_joints is None:
+            num_joints = cls.num_joints if hasattr(cls, 'num_joints') else 19
+            
+        return {
+            "object_x": flat_obs[:, 0:3].reshape(-1, num_objects, 3),
+            "object_quaternions": flat_obs[:, 3:7].reshape(-1, num_objects, 4),
+            "object_velocities": flat_obs[:, 7:13].reshape(-1, num_objects, 6),
+            "object_others": flat_obs[:, 13:19],
+            "joint_positions": flat_obs[:, 19:38],
+            "joint_velocities": flat_obs[:, 38:57],
+            "joint_x": flat_obs[:, 57:].reshape(-1, num_joints, 3),
+        }
+
+    @staticmethod
+    def flatten_obs(obs_dict):
+        """
+        Convert dictionary observation to flat format for Reach.
+        
+        Args:
+            obs_dict: Dictionary with observation components
+            
+        Returns:
+            Flat observation tensor of shape (batch_size, 114)
+        """
+        return torch.cat(
+            [
+                obs_dict["object_x"].reshape(
+                    obs_dict["object_x"].shape[0], -1
+                ),
+                obs_dict["object_quaternions"].reshape(
+                    obs_dict["object_quaternions"].shape[0], -1
+                ),
+                obs_dict["object_velocities"].reshape(
+                    obs_dict["object_velocities"].shape[0], -1
+                ),
+                obs_dict["object_others"],
+                obs_dict["joint_positions"],
+                obs_dict["joint_velocities"],
+                obs_dict["joint_x"].reshape(obs_dict["joint_x"].shape[0], -1),
+            ],
+            axis=-1,
+        )
+
+
+class Push(CustomObservation, PushV0):
+    base_task_name = "push"
+    num_objects = 2
+    
+    @property
+    def observation_space(self):
+        return Box(
+            low=-np.inf,
+            high=np.inf,
+            shape=(133,),
+            dtype=np.float64,
+        )
+
+    def get_obs(self) -> np.ndarray:
+        qpos = self._env.data.qpos.flat.copy()
+        qvel = self._env.data.qvel.flat.copy()
+        xanchor = self._env.data.xanchor.copy()
+        
+        xanchor = (xanchor[:, :] - xanchor[0, :]) / 8  # normalize positions
+        
+        # Get pelvis, left hand, and object positions
+        pelvis_position = xanchor[0, :]
+        left_hand_position = self.robot.left_hand_position()
+        # Get object position from qpos
+        object_position = qpos[-7:-4]
+        object_x = np.stack([pelvis_position, object_position])
+        
+        # Get pelvis quaternion, dummy target and object quaternions
+        pelvis_quaternion = qpos[3:7]
+        object_quat = qpos[-4:]
+        object_quaternions = np.stack([pelvis_quaternion, object_quat])
+        
+        # Get pelvis and object velocities
+        pelvis_velocities = qvel[0:6]
+        dofadr = self._env.named.model.body_dofadr["object"]
+        object_velocities = qvel[dofadr : dofadr + 3]
+        object_velocities = np.concatenate([object_velocities, np.zeros(3)])
+        object_vels = np.stack([pelvis_velocities, object_velocities])
+        
+        # Use locomotion joints (19 joints, same as Reach)
+        joint_positions = qpos[7:26]
+        joint_velocities = qvel[6:25]
+        joint_x = xanchor[1:20, :]
+        
+        # Get object_others: left_hand, target, box, and box_vel
+        box = qpos[-7:-4]
+        box_vel = qvel[dofadr : dofadr + 3]
+        object_others = np.concatenate([
+            left_hand_position,  # (3,)
+            self.goal.copy(),    # (3,)
+            box,                 # (3,)
+            box_vel              # (3,)
+        ])
+        
+        # Concatenate into flat vector
+        return np.concatenate(
+            [
+                object_x.flatten(),
+                object_quaternions.flatten(),
+                object_vels.flatten(),
+                object_others,
+                joint_positions,
+                joint_velocities,
+                joint_x.flatten(),
+            ]
+        )
+
+    @staticmethod
+    def get_obs_shapes(num_objects=2, num_joints=19):
+        """
+        Get observation shape dictionary for Push.
+        
+        Args:
+            num_objects: Number of objects (default: 2)
+            num_joints: Number of joints (default: 19)
+            
+        Returns:
+            Dictionary mapping observation keys to their shapes
+        """
+        return {
+            "object_x": (num_objects, 3),
+            "object_quaternions": (num_objects, 4),
+            "object_velocities": (num_objects, 6),
+            "object_others": (12,),
+            "joint_positions": (num_joints,),
+            "joint_velocities": (num_joints,),
+            "joint_x": (num_joints, 3),
+        }
+
+    @classmethod
+    def unflatten_obs(cls, flat_obs, num_objects=None, num_joints=None):
+        """
+        Convert flat observation to dictionary format for Push.
+        
+        Args:
+            flat_obs: Flat observation tensor of shape (batch_size, 133)
+            num_objects: Number of objects (default: 2)
+            num_joints: Number of joints (default: 19)
+            
+        Returns:
+            Dictionary with observation components
+        """
+        if num_objects is None:
+            num_objects = cls.num_objects if hasattr(cls, 'num_objects') else 2
+        if num_joints is None:
+            num_joints = cls.num_joints if hasattr(cls, 'num_joints') else 19
+            
+        return {
+            "object_x": flat_obs[:, 0:6].reshape(-1, num_objects, 3),
+            "object_quaternions": flat_obs[:, 6:14].reshape(-1, num_objects, 4),
+            "object_velocities": flat_obs[:, 14:26].reshape(-1, num_objects, 6),
+            "object_others": flat_obs[:, 26:38],
+            "joint_positions": flat_obs[:, 38:57],
+            "joint_velocities": flat_obs[:, 57:76],
+            "joint_x": flat_obs[:, 76:].reshape(-1, num_joints, 3),
+        }
+
+    @staticmethod
+    def flatten_obs(obs_dict):
+        """
+        Convert dictionary observation to flat format for Push.
+        
+        Args:
+            obs_dict: Dictionary with observation components
+            
+        Returns:
+            Flat observation tensor of shape (batch_size, 133)
+        """
+        return torch.cat(
+            [
+                obs_dict["object_x"].reshape(
+                    obs_dict["object_x"].shape[0], -1
+                ),
+                obs_dict["object_quaternions"].reshape(
+                    obs_dict["object_quaternions"].shape[0], -1
+                ),
+                obs_dict["object_velocities"].reshape(
+                    obs_dict["object_velocities"].shape[0], -1
+                ),
+                obs_dict["object_others"],
+                obs_dict["joint_positions"],
+                obs_dict["joint_velocities"],
+                obs_dict["joint_x"].reshape(obs_dict["joint_x"].shape[0], -1),
+            ],
+            axis=-1,
+        )
+
+
 # Map environment names to their corresponding environment classes
 ENV_CLASS_MAP = {
     "h1-stand-v1": Stand,
@@ -486,6 +769,8 @@ ENV_CLASS_MAP = {
     "h1-sit_simple-v1": Sit,
     "h1-sit_hard-v1": SitHard,
     "h1-balance_simple-v1": BalanceSimple,
+    "h1-reach-v1": Reach,
+    "h1-push-v1": Push,
 }
 
 

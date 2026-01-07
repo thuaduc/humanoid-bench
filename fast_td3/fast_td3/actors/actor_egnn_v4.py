@@ -3,10 +3,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from fast_td3.actors.gnn.egcl import env_with_object
-from fast_td3.actors.gnn.egnn_v3 import EGNN_V3
+from fast_td3.actors.gnn.egnn_v4 import EGNN_V4
 
 
-class ActorEGNN_V3(nn.Module):
+class ActorEGNN_V4(nn.Module):
     def __init__(
         self,
         num_envs: int,
@@ -17,6 +17,8 @@ class ActorEGNN_V3(nn.Module):
         act_fn: str,
         env_name: str,
         robot: str = "h1",
+        encoder_hidden_dim: int = 32,
+        encoder_output_dim: int = None,
         std_min: float = 0.05,
         std_max: float = 0.8,
         attention: bool = False,
@@ -37,18 +39,10 @@ class ActorEGNN_V3(nn.Module):
             case _:
                 raise ValueError(f"Unknown activation function: {act_fn}")
 
-        # Determine extra object features based on environment
-        extra_obj_dim = 0
-        if "reach" in env_name:
-            extra_obj_dim = 6
-        elif "push" in env_name:
-            extra_obj_dim = 12
-
-        # EGNN v3 with simplified cross-graph message passing
-        self.egnn = EGNN_V3(
+        # EGNN v4 with integrated geometric encoder for object features
+        self.egnn = EGNN_V4(
             hidden_nf=hidden_dim,
             in_joint_nf=2,
-            in_object_nf=13,
             out_node_nf=1,
             batch_size=batch_size,
             device=device,
@@ -62,7 +56,8 @@ class ActorEGNN_V3(nn.Module):
             env_name=env_name,
             residual=residual,
             coord_norm=coord_norm,
-            extra_state_dim=extra_obj_dim
+            encoder_hidden_dim=encoder_hidden_dim,
+            encoder_output_dim=encoder_output_dim,
         )
 
         # Initialize noise parameters
@@ -77,7 +72,6 @@ class ActorEGNN_V3(nn.Module):
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         result = self.egnn(obs)
-
         return result
 
     def explore(

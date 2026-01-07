@@ -366,7 +366,7 @@ class SimpleReplayBuffer(nn.Module):
 class EmpiricalNormalization(nn.Module):
     """Normalize mean and variance of values based on empirical values."""
 
-    def __init__(self, shape, device, eps=1e-2, until=None):
+    def __init__(self, shape, device, eps=1e-2, until=None, center=True):
         """Initialize EmpiricalNormalization module.
 
         Args:
@@ -379,6 +379,7 @@ class EmpiricalNormalization(nn.Module):
         self.eps = eps
         self.until = until
         self.device = device
+        self.center = center
         self.register_buffer("_mean", torch.zeros(shape).unsqueeze(0).to(device))
         self.register_buffer("_var", torch.ones(shape).unsqueeze(0).to(device))
         self.register_buffer("_std", torch.ones(shape).unsqueeze(0).to(device))
@@ -392,7 +393,7 @@ class EmpiricalNormalization(nn.Module):
     def std(self):
         return self._std.squeeze(0).clone()
 
-    def forward(self, x: torch.Tensor, center: bool = True) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.shape[1:] != self._mean.shape[1:]:
             raise ValueError(
                 f"Expected input of shape (*,{self._mean.shape[1:]}), got {x.shape}"
@@ -400,7 +401,7 @@ class EmpiricalNormalization(nn.Module):
 
         if self.training:
             self.update(x)
-        if center:
+        if self.center:
             return (x - self._mean) / (self._std + self.eps)
         else:
             return x / (self._std + self.eps)
@@ -444,10 +445,90 @@ class EmpiricalNormalization(nn.Module):
         return y * (self._std + self.eps) + self._mean
 
 
-class StructuredEmpiricalNormalization(nn.Module):
-    SKIP_KEYS = ["joint_x"]
+class ScalarEmpiricalNormalization(nn.Module):
+    """Normalize values by scalar standard deviation (with optional centering and per-feature normalization)."""
 
-    def __init__(self, env_name: str, device, eps=1e-2, until=None):
+    def __init__(self, device, eps=1e-2, until=None, center=True):
+        """Initialize ScalarEmpiricalNormalization module.
+
+        Args:
+            device: Device to place tensors on.
+            eps (float): Small value for stability.
+            until (int or None): If specified, stop learning after this many samples.
+            center (bool): If True, normalize by subtracting mean. Default True.
+        """
+        super().__init__()
+        self.eps = eps
+        self.until = until
+        self.device = device
+        self.center = center
+        # Single scalar mean, variance and std for all features
+        self.register_buffer("_mean", torch.tensor(0.0, device=device))
+        self.register_buffer("_var", torch.tensor(1.0, device=device))
+        self.register_buffer("_std", torch.tensor(1.0, device=device))
+        self.register_buffer("count", torch.tensor(0, dtype=torch.long, device=device))
+
+    @property
+    def mean(self):
+        return self._mean.clone()
+
+    @property
+    def std(self):
+        return self._std.clone()
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Normalize by scalar std and optionally by subtracting mean."""
+        if self.training:
+            self.update(x)
+        if self.center:
+            return (x - self._mean) / (self._std + self.eps)
+        else:
+            return x / (self._std + self.eps)
+
+    @torch.jit.unused
+    def update(self, x):
+        """Learn scalar mean and variance using Welford's online algorithm."""
+        if self.until is not None and self.count >= self.until:
+            return
+
+        batch_size = x.shape[0]
+        batch_mean = torch.mean(x)
+        
+        # Update count
+        new_count = self.count + batch_size
+
+        # Update mean
+        delta = batch_mean - self._mean
+        self._mean += (batch_size / new_count) * delta
+
+        # Update variance using Welford's parallel algorithm
+        if self.count > 0:
+            # Compute batch variance
+            batch_var = torch.mean((x - batch_mean) ** 2)
+            
+            # m_a and m_b are scalar values
+            m_a = self._var * self.count
+            m_b = batch_var * batch_size
+            delta2 = batch_mean - self._mean
+            M2 = m_a + m_b + (delta2**2) * (self.count * batch_size / new_count)
+            self._var = M2 / new_count
+        else:
+            # For first batch, just use batch variance
+            self._var = torch.mean((x - batch_mean) ** 2)
+
+        self._std = torch.sqrt(self._var)
+        self.count = new_count
+
+    @torch.jit.unused
+    def inverse(self, y):
+        return y * (self._std + self.eps) + self._mean
+
+
+class StructuredEmpiricalNormalization(nn.Module):
+    POSITION_KEYS = ["joint_x", "object_x"]
+    SKIP_KEYS = []
+
+    def __init__(self, env_name: str, device, eps=1e-2, until=50_000, center=True):
         """Initialize StructuredEmpiricalNormalization module.
 
         Args:
@@ -466,18 +547,23 @@ class StructuredEmpiricalNormalization(nn.Module):
         # Create normalizers for each feature type (except hardcoded skip keys)
         self.normalizers = nn.ModuleDict()
         for key, shape in self.obs_shapes.items():
-            if key not in self.SKIP_KEYS:
+            if key in self.SKIP_KEYS:
+                continue
+            elif key in self.POSITION_KEYS:
+                self.normalizers[key] = ScalarEmpiricalNormalization(
+                    device=device, eps=eps, until=until, center=center
+                )
+            else:
                 self.normalizers[key] = EmpiricalNormalization(
-                    shape=shape, device=device, eps=eps, until=until
+                    shape=shape, device=device, eps=eps, until=until, center=center
                 )
 
-    def forward(self, x: torch.Tensor, center: bool = True) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Normalize dict observations.
 
         Args:
             x (torch.Tensor): Flat observation tensor.
-            center (bool): If True, subtract mean. If False, only scale by std.
 
         Returns:
             torch.Tensor: Normalized flat observation tensor.
@@ -489,17 +575,127 @@ class StructuredEmpiricalNormalization(nn.Module):
             if key in self.SKIP_KEYS:
                 continue
             elif key in self.normalizers:
-                x_dict[key] = self.normalizers[key](value, center=center)
-            else:
-                raise KeyError(f"No normalizer found for key '{key}'")
+                x_dict[key] = self.normalizers[key](value)
 
         return flatten_obs(x_dict, self.env_name)
+
+
+class SelectiveEmpiricalNormalization(nn.Module):
+    """Normalize observations while freezing specific indices for CUDA graph compatibility.
     
-    def get_flat_obs_size(self):
-        total = 0
-        for _, shape in self.obs_shapes.items():
-            total += np.prod(shape)
-        return total
+    Automatically identifies which observation field indices to freeze based on hard-coded skip keys.
+    """
+    SKIP_KEYS = ["joint_x"]
+
+    def __init__(self, env_name: str, device, eps=1e-2, until=None, center=True):
+        """Initialize SelectiveEmpiricalNormalization module.
+
+        Args:
+            env_name (str): Environment name to determine observation structure.
+            device: Device to place the normalizer on.
+            eps (float): Small value for stability.
+            until (int or None): If specified, stop learning after this many samples.
+        """
+        super().__init__()
+        self.env_name = env_name
+        self.device = device
+        self.eps = eps
+        self.until = until
+        self.center = center
+        
+        # Get observation shapes and build freeze indices
+        obs_shapes = get_obs_shapes(env_name)
+        
+        # Calculate total obs size and build freeze_indices
+        total_obs_size = 0
+        freeze_indices = []
+        index_offset = 0
+        
+        for key, shape in obs_shapes.items():
+            key_size = int(np.prod(shape))
+            
+            if key in self.SKIP_KEYS:
+                # Mark these indices as frozen
+                freeze_indices.extend(range(index_offset, index_offset + key_size))
+            
+            total_obs_size += key_size
+            index_offset += key_size
+        
+        # Create single normalizer for all features with freeze mask
+        self.normalizer = EmpiricalNormalization(
+            shape=(total_obs_size,), device=device, eps=eps, until=until
+        )
+        
+        # Register freeze mask for CUDA graph compatibility
+        if freeze_indices:
+            freeze_mask = torch.ones(total_obs_size, dtype=torch.bool, device=device)
+            freeze_mask[freeze_indices] = False
+            self.register_buffer("_freeze_mask", freeze_mask)
+        else:
+            self.register_buffer("_freeze_mask", None)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Normalize flat observations with frozen indices support.
+
+        Args:
+            x (torch.Tensor): Flat observation tensor of shape (batch_size, obs_size).
+
+        Returns:
+            torch.Tensor: Normalized flat observation tensor with frozen indices unchanged.
+        """
+        if x.shape[1:] != self.normalizer._mean.shape[1:]:
+            raise ValueError(
+                f"Expected input of shape (*,{self.normalizer._mean.shape[1:]}), got {x.shape}"
+            )
+        
+        if self.training:
+            self._update_with_freeze(x)
+        
+        if self.center:
+            return (x - self.normalizer._mean) / (self.normalizer._std + self.eps)
+        else:
+            return x / (self.normalizer._std + self.eps)
+    
+    @torch.jit.unused
+    def _update_with_freeze(self, x):
+        """Update normalizer with frozen indices support."""
+        if self.normalizer.until is not None and self.normalizer.count >= self.normalizer.until:
+            return
+
+        batch_size = x.shape[0]
+        batch_mean = torch.mean(x, dim=0, keepdim=True)
+
+        # Update count
+        new_count = self.normalizer.count + batch_size
+
+        # Update mean
+        delta = batch_mean - self.normalizer._mean
+        self.normalizer._mean += (batch_size / new_count) * delta
+
+        # Update variance using Welford's parallel algorithm
+        if self.normalizer.count > 0:  # Ensure we're not dividing by zero
+            # Compute batch variance
+            batch_var = torch.mean((x - batch_mean) ** 2, dim=0, keepdim=True)
+
+            # Combine variances using parallel algorithm
+            delta2 = batch_mean - self.normalizer._mean
+            m_a = self.normalizer._var * self.normalizer.count
+            m_b = batch_var * batch_size
+            M2 = m_a + m_b + (delta2**2) * (self.normalizer.count * batch_size / new_count)
+            self.normalizer._var = M2 / new_count
+        else:
+            # For first batch, just use batch variance
+            self.normalizer._var = torch.mean((x - self.normalizer._mean) ** 2, dim=0, keepdim=True)
+
+        self.normalizer._std = torch.sqrt(self.normalizer._var)
+        self.normalizer.count = new_count
+        
+        # Restore frozen indices to their initial values (mean=0, std=1)
+        if self._freeze_mask is not None:
+            self.normalizer._mean[0, ~self._freeze_mask] = 0.0
+            self.normalizer._var[0, ~self._freeze_mask] = 1.0
+            self.normalizer._std[0, ~self._freeze_mask] = 1.0
 
 
 def cpu_state(sd):

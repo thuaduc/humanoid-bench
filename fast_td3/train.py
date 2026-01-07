@@ -27,7 +27,9 @@ torch.set_float32_matmul_precision("high")
 from fast_td3.fast_td3_utils import (
     EmpiricalNormalization,
     SimpleReplayBufferGNN,
+    EmpiricalNormalization,
     StructuredEmpiricalNormalization,
+    SelectiveEmpiricalNormalization,
     save_params,
 )
 from fast_td3 import Critic
@@ -50,7 +52,7 @@ def main():
         type=str,
         default="egnn",
         help="The kind of actor to use.",
-        choices=["egnn", "egnn_v2", "egnn_v3", "mlp"],
+        choices=["egnn", "egnn_v2", "egnn_v3", "egnn_v4", "mlp", "transformer"],
     )
     parser.add_argument("--env_name", type=str, default="h1-stand-v0")
     parser.add_argument(
@@ -98,6 +100,13 @@ def main():
         type=str,
         default="",
         help="Description of the task/experiment to log to wandb.",
+    )
+    parser.add_argument(
+        "--normalization_type",
+        type=str,
+        default="empirical",
+        choices=["empirical", "selective_empirical", "structured_empirical"],
+        help="Type of normalization to use for observations.",
     )
 
     terminal_args = vars(parser.parse_args())
@@ -209,15 +218,24 @@ def main():
     action_low, action_high = -1.0, 1.0
 
     if args.obs_normalization:
+        normalization_type = terminal_args["normalization_type"]
+        
         if "v1" in terminal_args["env_name"]:
-            obs_normalizer = StructuredEmpiricalNormalization(env_name=terminal_args["env_name"], device=device)
-            critic_obs_normalizer = StructuredEmpiricalNormalization(
-               env_name=terminal_args["env_name"], device=device
-            )
+            if normalization_type == "empirical":
+                obs_normalizer = EmpiricalNormalization(shape=n_obs, device=device, center=args.center_obs)
+                critic_obs_normalizer = EmpiricalNormalization(shape=n_critic_obs, device=device, center=args.center_obs)
+            elif normalization_type == "selective_empirical":
+                obs_normalizer = SelectiveEmpiricalNormalization(env_name=terminal_args["env_name"], device=device, center=args.center_obs)
+                critic_obs_normalizer = SelectiveEmpiricalNormalization(env_name=terminal_args["env_name"], device=device, center=args.center_obs)
+            elif normalization_type == "structured_empirical":
+                obs_normalizer = StructuredEmpiricalNormalization(env_name=terminal_args["env_name"], device=device, center=args.center_obs)
+                critic_obs_normalizer = StructuredEmpiricalNormalization(env_name=terminal_args["env_name"], device=device, center=args.center_obs)
+            else:
+                raise ValueError(f"Unknown normalization type: {normalization_type}")
         else:
-            obs_normalizer = EmpiricalNormalization(shape=n_obs, device=device)
+            obs_normalizer = EmpiricalNormalization(shape=n_obs, device=device, center=args.center_obs)
             critic_obs_normalizer = EmpiricalNormalization(
-                shape=n_critic_obs, device=device
+                shape=n_critic_obs, device=device, center=args.center_obs
             )
     else:
         obs_normalizer = nn.Identity()

@@ -4,5 +4,6 @@
     "act_fn": "relu",
     "coords_agg": "mean",
     "residual": true,
-    "coord_norm": true
+    "tanh": true,
+    "coord_norm": false
 }

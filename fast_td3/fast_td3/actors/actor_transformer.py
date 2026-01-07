@@ -2,11 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from fast_td3.actors.gnn.egcl import env_with_object
-from fast_td3.actors.gnn.egnn_v3 import EGNN_V3
+from fast_td3.actors.transformer.transformer import Transformer
 
 
-class ActorEGNN_V3(nn.Module):
+class ActorTransformer(nn.Module):
     def __init__(
         self,
         num_envs: int,
@@ -19,14 +18,11 @@ class ActorEGNN_V3(nn.Module):
         robot: str = "h1",
         std_min: float = 0.05,
         std_max: float = 0.8,
-        attention: bool = False,
-        coords_agg: str = "mean",
-        normalize: bool = False,
-        tanh: bool = False,
-        residual: bool = True,
-        coord_norm: bool = False,
+        num_heads: int = 4,
+        dropout: float = 0.1,
     ):
         super().__init__()
+        
         match act_fn:
             case "leaky_relu":
                 act_fn = nn.LeakyReLU()
@@ -44,25 +40,20 @@ class ActorEGNN_V3(nn.Module):
         elif "push" in env_name:
             extra_obj_dim = 12
 
-        # EGNN v3 with simplified cross-graph message passing
-        self.egnn = EGNN_V3(
+        # Transformer with EGNN-style data handling
+        self.transformer = Transformer(
             hidden_nf=hidden_dim,
-            in_joint_nf=2,
-            in_object_nf=13,
+            in_joint_nf=5,
+            in_object_nf=13 + extra_obj_dim,
             out_node_nf=1,
             batch_size=batch_size,
             device=device,
             act_fn=act_fn,
             n_layers=n_layers,
             robot=robot,
-            attention=attention,
-            coords_agg=coords_agg,
-            normalize=normalize,
-            tanh=tanh,
             env_name=env_name,
-            residual=residual,
-            coord_norm=coord_norm,
-            extra_state_dim=extra_obj_dim
+            num_heads=num_heads,
+            dropout=dropout,
         )
 
         # Initialize noise parameters
@@ -76,8 +67,7 @@ class ActorEGNN_V3(nn.Module):
         self.n_envs = num_envs
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        result = self.egnn(obs)
-
+        result = self.transformer(obs)
         return result
 
     def explore(
@@ -85,7 +75,7 @@ class ActorEGNN_V3(nn.Module):
     ) -> torch.Tensor:
         # If dones is provided, resample noise for environments that are done
         if dones is not None and dones.sum() > 0:
-            # Generate new noise scales for done environments (one per environment)
+            # Generate new noise scales for done environments
             new_scales = (
                 torch.rand(self.n_envs, 1, device=obs.device)
                 * (self.std_max - self.std_min)
