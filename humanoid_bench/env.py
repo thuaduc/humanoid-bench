@@ -139,7 +139,7 @@ TASKS = {**_TASKS_ORIGINAL, **TASKS_CUSTOM}
 class HumanoidEnv(MujocoEnv, gym.utils.EzPickle):
     metadata = {
         "render_modes": ["human", "rgb_array", "depth_array"],
-        "render_fps": 100,
+        "render_fps": 50,
     }
 
     def __init__(

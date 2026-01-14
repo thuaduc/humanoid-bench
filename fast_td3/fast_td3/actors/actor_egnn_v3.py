@@ -4,6 +4,7 @@ import torch.nn.functional as F
 
 from fast_td3.actors.gnn.egcl import env_with_object
 from fast_td3.actors.gnn.egnn_v3 import EGNN_V3
+from humanoid_bench.envs.custom_env import get_env_class
 
 
 class ActorEGNN_V3(nn.Module):
@@ -37,18 +38,15 @@ class ActorEGNN_V3(nn.Module):
             case _:
                 raise ValueError(f"Unknown activation function: {act_fn}")
 
-        # Determine extra object features based on environment
-        extra_obj_dim = 0
-        if "reach" in env_name:
-            extra_obj_dim = 6
-        elif "push" in env_name:
-            extra_obj_dim = 12
+
+        env_class = get_env_class(env_name)
+        object_feature_dim = env_class.get_object_feature_dim()
 
         # EGNN v3 with simplified cross-graph message passing
         self.egnn = EGNN_V3(
             hidden_nf=hidden_dim,
             in_joint_nf=2,
-            in_object_nf=13,
+            object_feature_dim=object_feature_dim,
             out_node_nf=1,
             batch_size=batch_size,
             device=device,
@@ -62,7 +60,6 @@ class ActorEGNN_V3(nn.Module):
             env_name=env_name,
             residual=residual,
             coord_norm=coord_norm,
-            extra_state_dim=extra_obj_dim
         )
 
         # Initialize noise parameters

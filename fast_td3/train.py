@@ -10,7 +10,7 @@ if sys.platform != "darwin":
     os.environ["MUJOCO_GL"] = "egl"
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["JAX_DEFAULT_MATMUL_PRECISION"] = "highest"
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import random
 import tqdm
 import wandb
@@ -52,7 +52,7 @@ def main():
         type=str,
         default="egnn",
         help="The kind of actor to use.",
-        choices=["egnn", "egnn_v2", "egnn_v3", "egnn_v4", "mlp", "transformer"],
+        choices=["egnn", "egnn_v2", "egnn_v3", "egnn_v4", "egnn_v5", "mlp", "transformer"],
     )
     parser.add_argument("--env_name", type=str, default="h1-stand-v0")
     parser.add_argument(
@@ -76,11 +76,11 @@ def main():
     parser.add_argument(
         "--num_envs",
         type=int,
-        default=32,
+        default=128,
         help="Number of parallel environments to use.",
     )
     parser.add_argument(
-        "--batch_size", type=int, default=8192, help="Batch size for training."
+        "--batch_size", type=int, default=32768, help="Batch size for training."
     )
     parser.add_argument("--wandb", action="store_true", help="Enable wandb logging")
     parser.add_argument(

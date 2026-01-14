@@ -19,7 +19,7 @@ class EGNN_V3(nn.Module):
     def __init__(
         self,
         in_joint_nf,
-        in_object_nf,
+        object_feature_dim,
         out_node_nf,
         hidden_nf,
         device,
@@ -34,10 +34,10 @@ class EGNN_V3(nn.Module):
         tanh=False,
         coords_agg="mean",
         coord_norm=False,
-        extra_state_dim=0,
     ):
         """
         :param in_joint_nf: Number of features for joint nodes (velocity + position)
+        :param object_feature_dim: Total dimension of object features (from get_object_feature_dim())
         :param hidden_nf: Number of hidden features
         :param device: Device (e.g. 'cpu', 'cuda:0',...)
         :param act_fn: Non-linearity
@@ -60,16 +60,14 @@ class EGNN_V3(nn.Module):
         self.batch_size = batch_size
         self.env_name = env_name
         self.robot = robot
-        self.in_object_nf = in_object_nf
-        self.extra_state_dim = extra_state_dim
+        self.object_feature_dim = object_feature_dim
         self.graph_builder = GraphBuilder(env_name, batch_size, device, robot)
         self.num_joints = self.graph_builder.robot.num_joints
-        self.num_objects = 2 if self.env_name in env_with_object else 1
         self._joint_edges_cache = {}
         
         self.joint_out_dim = 8
         
-        self.joint_object_dim = self.joint_out_dim * self.num_joints + self.in_object_nf * self.num_objects + self.extra_state_dim
+        self.joint_object_dim = self.joint_out_dim * self.num_joints + self.object_feature_dim
 
         # Joint graph layers (message passing within joints)
         self.joint_layers = nn.ModuleList(

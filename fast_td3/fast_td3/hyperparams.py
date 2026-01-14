@@ -91,7 +91,7 @@ class BaseArgs:
     """the maximum gradient norm"""
     amp: bool = True
     """whether to use amp"""
-    amp_dtype: str = "f16"
+    amp_dtype: str = "bf16"
     """the dtype of the amp"""
     disable_bootstrap: bool = False
     """Whether to disable bootstrap in the critic learning"""
@@ -189,8 +189,6 @@ class HumanoidBenchArgs(BaseArgs):
 class HumanoidBenchV1Args(HumanoidBenchArgs):
     # Hyperparameters optimized for v1 tasks (custom_env variants with alternative locomotion implementations)
     # These are tuned for tasks with different physics and control dynamics
-    buffer_size: int = 1024 * 25
-    batch_size: int = 8912
     max_grad_norm: float = 10
 
 
