@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from fast_td3.actors.gnn.egcl import env_with_object
 from fast_td3.actors.gnn.egnn_v5 import EGNN_V5
+from humanoid_bench.envs.custom_env import get_env_class
 
 
 class ActorEGNN_V5(nn.Module):
@@ -71,19 +71,16 @@ class ActorEGNN_V5(nn.Module):
             case _:
                 raise ValueError(f"Unknown activation function: {act_fn}")
 
-        # Determine extra object features based on environment
-        extra_obj_dim = 0
-        if "reach" in env_name:
-            extra_obj_dim = 6  # Target position/orientation
-        elif "push" in env_name:
-            extra_obj_dim = 12  # Goal position, push target info
+        # Determine object feature dimensions
+        env_class = get_env_class(env_name)
+        object_feature_dim = env_class.get_object_feature_dim()
+        in_object_nf = object_feature_dim
 
         # EGNN v5 with cross-attention
         self.egnn = EGNN_V5(
             hidden_nf=hidden_dim,
             in_joint_nf=2,  # velocity + position
-            in_object_nf=13,  # x(3) + quat(4) + vel(6)
-            out_node_nf=1,  # Not used, kept for compatibility
+            in_object_nf=in_object_nf,  # object features per object
             batch_size=batch_size,
             device=device,
             act_fn=act_fn,
@@ -96,7 +93,6 @@ class ActorEGNN_V5(nn.Module):
             env_name=env_name,
             residual=residual,
             coord_norm=coord_norm,
-            extra_state_dim=extra_obj_dim,
             num_attn_heads=num_attn_heads,
             attn_dropout=attn_dropout,
         )

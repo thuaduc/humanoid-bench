@@ -3,7 +3,7 @@ import torch
 
 from fast_td3.robots.graph_builder import GraphBuilder
 from fast_td3.actors.gnn.egcl import E_GCL, env_with_object
-from humanoid_bench.envs.custom_env import unflatten_obs
+from humanoid_bench.envs.custom_env import unflatten_obs, get_env_class
 
 
 class JointObjectCrossAttention(nn.Module):
@@ -50,7 +50,7 @@ class JointObjectCrossAttention(nn.Module):
             Enhanced joint features: (batch_size, num_joints, joint_dim)
         """
         # Embed objects to joint dimension
-        object_embedded = self.object_embedding(object_features)  # (B, num_obj, joint_dim)
+        object_embedded = self.object_embedding(object_features)  # (B, joint_dim)
         
         # Cross-attention: joints attend to objects
         attn_out, _ = self.cross_attn(
@@ -70,7 +70,6 @@ class EGNN_V5(nn.Module):
         self,
         in_joint_nf,
         in_object_nf,
-        out_node_nf,
         hidden_nf,
         device,
         batch_size,
@@ -84,7 +83,6 @@ class EGNN_V5(nn.Module):
         tanh=False,
         coords_agg="mean",
         coord_norm=False,
-        extra_state_dim=0,
         num_attn_heads=1,
         attn_dropout=0.01,
     ):
@@ -92,7 +90,6 @@ class EGNN_V5(nn.Module):
         Args:
             in_joint_nf: Number of features for joint nodes (velocity + position)
             in_object_nf: Number of features for object nodes (13: x, quat, vel)
-            out_node_nf: Output node features (not used, kept for compatibility)
             hidden_nf: Number of hidden features (kept constant throughout)
             device: Device (e.g. 'cpu', 'cuda:0')
             batch_size: Batch size for edge caching
@@ -106,7 +103,6 @@ class EGNN_V5(nn.Module):
             tanh: Apply tanh to coordinate updates in E_GCL
             coords_agg: Coordinate aggregation method
             coord_norm: Apply coordinate normalization
-            extra_state_dim: Extra object features (e.g., 6 for reach target, 12 for push)
             num_attn_heads: Number of attention heads (default: 1 for efficiency)
             attn_dropout: Dropout for cross-attention (default: 0.0)
         
@@ -121,14 +117,21 @@ class EGNN_V5(nn.Module):
         self.env_name = env_name
         self.robot = robot
         self.in_object_nf = in_object_nf
-        self.extra_state_dim = extra_state_dim
         self.graph_builder = GraphBuilder(env_name, batch_size, device, robot)
         self.num_joints = self.graph_builder.robot.num_joints
-        self.num_objects = 2 if self.env_name in env_with_object else 1
-        self._joint_edges_cache = {}
+        env_class = get_env_class(env_name)
+        self.num_objects = env_class.num_objects
         
-        # Total object feature dimension (base 13 + extra like reach target)
-        self.total_object_nf = self.in_object_nf + (self.extra_state_dim // self.num_objects if self.extra_state_dim > 0 else 0)
+        # Pre-generate edge caches for common batch sizes to avoid dynamic dict access
+        # This is crucial for torch.compile with CUDA graphs
+        # Register as buffers for proper device handling and state persistence
+        common_batch_sizes = [128, batch_size]
+        for bs in common_batch_sizes:
+            self.register_buffer(
+                f'_joint_edges_{bs}',
+                self.generate_joint_edges(bs),
+                persistent=True
+            )
         
         # Joint message passing layers (E_GCL)
         self.joint_layers = nn.ModuleList(
@@ -159,7 +162,7 @@ class EGNN_V5(nn.Module):
         # Cross-attention for object-joint interaction
         self.cross_attention = JointObjectCrossAttention(
             joint_dim=self.hidden_nf,
-            object_dim=self.total_object_nf,
+            object_dim=self.in_object_nf,
             num_heads=num_attn_heads,
             dropout=attn_dropout,
         )
@@ -184,23 +187,20 @@ class EGNN_V5(nn.Module):
             Actions: (batch_size, num_joints)
         """
         # Unflatten observation into components
-        obs = unflatten_obs(obs, self.env_name)
-        current_batch_size = obs["joint_velocities"].shape[0]
+        h_joints, x_joints_flat, h_objects = unflatten_obs(obs, self.env_name)
+        current_batch_size = h_objects.shape[0]
         joint_edges = self.get_cached_joint_edges(current_batch_size)
 
-        # Prepare joint inputs in (batch, num_joints, feat) format
-        h_joints = torch.stack(
-            [obs["joint_velocities"], obs["joint_positions"]],
-            dim=-1
-        )  # (batch, 19, 2)
+        # Reshape h_joints from (batch*19, 2) to (batch, 19, 2) for embedding
+        h_joints = h_joints.reshape(current_batch_size, self.num_joints, 2)
         h_joints = self.joint_embedding_in(h_joints)  # (batch, 19, hidden_nf)
         
-        # Prepare object features
-        h_objects = obs["object_features"]  # (batch, num_obj, 13)
+        # Prepare object features: (batch, 1, in_object_nf)
+        h_objects = h_objects.unsqueeze(1)
         
-        # Flatten for E_GCL message passing (only reshape once)
+        # Flatten for E_GCL message passing
         h_joints_flat = h_joints.reshape(-1, self.hidden_nf)  # (batch*19, hidden_nf)
-        x_joints_flat = obs["joint_x"].reshape(-1, 3)  # (batch*19, 3)
+        # x_joints_flat already in correct shape (batch*19, 3)
 
         # Message passing within joints (E_GCL layers)
         for layer in self.joint_layers:
@@ -233,9 +233,11 @@ class EGNN_V5(nn.Module):
     
     def get_cached_joint_edges(self, current_batch_size: int):
         """Get cached edge indices for the joint graph."""
-        if current_batch_size in self._joint_edges_cache:
-            return self._joint_edges_cache[current_batch_size]
+        # Use cached edges if available, otherwise generate on-the-fly
+        # Note: For best compile performance, ensure batch_size is pre-cached during init
+        buffer_name = f'_joint_edges_{current_batch_size}'
+        if hasattr(self, buffer_name):
+            return getattr(self, buffer_name)
         
-        edges = self.generate_joint_edges(current_batch_size)
-        self._joint_edges_cache[current_batch_size] = edges
-        return edges
+        # Fallback for uncached batch sizes (warning: may break CUDA graphs)
+        return self.generate_joint_edges(current_batch_size)

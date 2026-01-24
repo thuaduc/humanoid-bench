@@ -105,7 +105,7 @@ class BaseArgs:
     """(IsaacLab only) the bounds of the action space (-action_bounds, action_bounds)"""
     weight_decay: float = 0.1
     """the weight decay of the optimizer"""
-    save_interval: int = 5000
+    save_interval: int = 20000
     """the interval to save the model"""
 
 
@@ -124,6 +124,15 @@ def get_args():
     # - MuJoCo Playground (https://arxiv.org/abs/2502.08844)
     env_to_args_class = {
         # HumanoidBench
+        # v1 tasks
+        "h1-run-v1": H1RunArgs,
+        "h1-slide-v1": H1SlideArgs,
+        "h1-hurdle-v1": H1HurdleArgs,
+        "h1-door-v1": H1DoorArgs,
+        "h1-balance-simple-v1": H1BalanceSimpleArgs,
+        "h1-push-v1": H1PushArgs,
+        "h1-reach-v1": H1ReachArgs,
+        
         # NOTE: These tasks are not full list of HumanoidBench tasks
         "h1hand-reach-v0": H1HandReachArgs,
         "h1hand-balance-simple-v0": H1HandBalanceSimpleArgs,
@@ -188,9 +197,39 @@ class HumanoidBenchArgs(BaseArgs):
 @dataclass
 class HumanoidBenchV1Args(HumanoidBenchArgs):
     # Hyperparameters optimized for v1 tasks (custom_env variants with alternative locomotion implementations)
-    # These are tuned for tasks with different physics and control dynamics
     max_grad_norm: float = 10
+    
+@dataclass
+class H1PushArgs(HumanoidBenchV1Args):
+    v_min: float = -2000.0
+    v_max: float = 2000.0
+    total_timesteps: int = 250_001
 
+@dataclass
+class H1ReachArgs(HumanoidBenchV1Args):
+    v_min: float = -2000.0
+    v_max: float = 2000.0
+    total_timesteps: int = 350_001
+    
+@dataclass
+class H1RunArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 50_001
+    
+@dataclass
+class H1SlideArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 50_001
+    
+@dataclass
+class H1HurdleArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 150_001
+    
+@dataclass
+class H1DoorArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 500_001
+
+@dataclass
+class H1BalanceSimpleArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 400_001
 
 @dataclass
 class H1HandReachArgs(HumanoidBenchArgs):

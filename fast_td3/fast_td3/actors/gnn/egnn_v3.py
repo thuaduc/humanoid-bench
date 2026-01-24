@@ -112,19 +112,12 @@ class EGNN_V3(nn.Module):
         self.to(self.device)
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        obs = unflatten_obs(obs, self.env_name)
-        current_batch_size = obs["joint_velocities"].shape[0]
+        h_joints, x_joints, h_objects = unflatten_obs(obs, self.env_name)
+        current_batch_size = h_objects.shape[0]
         joint_edges = self.get_cached_joint_edges(current_batch_size)
 
-        # joint inputs
-        h_joints = torch.stack([obs["joint_velocities"].reshape(-1), obs["joint_positions"].reshape(-1),], dim=1)
-        h_joints = self.joint_embedding_in(h_joints)
-        x_joints = obs["joint_x"].reshape(-1, 3)
-        
-        h_objects = obs["object_features"].reshape(current_batch_size, -1) 
-        
-        if "object_others" in obs:
-            h_objects = torch.cat([h_objects, obs["object_others"]], dim=-1)
+        # Embed joint inputs (already stacked as (batch*19, 2))
+        h_joints = self.joint_embedding_in(h_joints) 
 
         # Message passing within joints
         for layer in self.joint_layers:

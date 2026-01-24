@@ -35,7 +35,7 @@ from fast_td3.fast_td3_utils import (
 from fast_td3 import Critic
 
 from fast_td3.train_utils import create_actor, collect_gradient_stats
-from fast_td3.hyperparams import HumanoidBenchArgs, HumanoidBenchV1Args
+from fast_td3.hyperparams import get_args
 import argparse
 from fast_td3.environments.humanoid_bench_env import HumanoidBenchEnv
 from IPython.display import display, HTML
@@ -55,12 +55,6 @@ def main():
         choices=["egnn", "egnn_v2", "egnn_v3", "egnn_v4", "egnn_v5", "mlp", "transformer"],
     )
     parser.add_argument("--env_name", type=str, default="h1-stand-v0")
-    parser.add_argument(
-        "--total_timesteps",
-        type=int,
-        default=50000,
-        help="Total number of timesteps to train for.",
-    )
     parser.add_argument(
         "--render_interval",
         type=int,
@@ -104,33 +98,28 @@ def main():
     parser.add_argument(
         "--normalization_type",
         type=str,
-        default="empirical",
+        default="selective_empirical",
         choices=["empirical", "selective_empirical", "structured_empirical"],
         help="Type of normalization to use for observations.",
     )
 
-    terminal_args = vars(parser.parse_args())
+    terminal_args, remaining_args = parser.parse_known_args()
+    terminal_args = vars(terminal_args)
 
     if terminal_args["model_kwargs"] is not None:
         with open(terminal_args["model_kwargs"], "r") as f:
             model_kwargs = json.load(f)
     else:
         model_kwargs = {}
+    
+    # Pass remaining args to tyro via sys.argv, including --env_name so tyro can select the right Args class
+    import sys
+    sys.argv = [sys.argv[0], "--env_name", terminal_args["env_name"]] + remaining_args
         
-    if terminal_args["actor"].startswith("egnn"):
-        ArgsCls = HumanoidBenchV1Args
-    else:
-        ArgsCls = HumanoidBenchArgs
-
-    args = ArgsCls(
-        env_name=terminal_args["env_name"],
-        total_timesteps=terminal_args["total_timesteps"],
-        render_interval=terminal_args["render_interval"],
-        eval_interval=terminal_args["eval_interval"],
-        num_envs=terminal_args["num_envs"],
-        batch_size=terminal_args["batch_size"],
-        model_kwargs=model_kwargs,
-    )
+    args = get_args()
+    args.render_interval = terminal_args["render_interval"]
+    args.eval_interval = terminal_args["eval_interval"]
+    args.model_kwargs = model_kwargs
 
     print(f"Training with args: {terminal_args}")
 
@@ -145,8 +134,7 @@ def main():
         
         wandb.init(
             entity="thuaduc24042001-technical-university-of-munich",
-            project="FastTD3 - new",
-            #project="HB - benchmark",
+            project="Benchmark final",
             name=run_name,
             config=config,
             save_code=True,
@@ -158,19 +146,12 @@ def main():
         
         wandb.save("fast_td3/actors/gnn/egnn.py")
         wandb.save("fast_td3/actors/gnn/egnn_v2.py")
+        wandb.save("fast_td3/actors/gnn/egnn_v3.py")
+        wandb.save("fast_td3/actors/gnn/egnn_v5.py")
         wandb.save("fast_td3/robots/H1.py")
         wandb.save("fast_td3/robots/graph_builder.py")
         wandb.save("fast_td3/train.py")
-        try:
-            # Try absolute path to custom_env.py if available
-            import os
-            custom_env_path = os.path.abspath(os.path.join(os.getcwd(), "../humanoid_bench/envs/custom_env.py"))
-            if os.path.exists(custom_env_path):
-                wandb.save(custom_env_path)
-        except Exception as e:
-            print(f"Warning: Could not save custom_env.py to wandb: {e}")
-
-
+        
 
     amp_enabled = args.amp and args.cuda and torch.cuda.is_available()
     amp_device_type = (
