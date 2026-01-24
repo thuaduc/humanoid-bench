@@ -28,7 +28,6 @@ from fast_td3.fast_td3_utils import (
     EmpiricalNormalization,
     SimpleReplayBufferGNN,
     EmpiricalNormalization,
-    StructuredEmpiricalNormalization,
     SelectiveEmpiricalNormalization,
     save_params,
 )
@@ -99,7 +98,7 @@ def main():
         "--normalization_type",
         type=str,
         default="selective_empirical",
-        choices=["empirical", "selective_empirical", "structured_empirical"],
+        choices=["empirical", "selective_empirical"],
         help="Type of normalization to use for observations.",
     )
 
@@ -208,9 +207,6 @@ def main():
             elif normalization_type == "selective_empirical":
                 obs_normalizer = SelectiveEmpiricalNormalization(env_name=terminal_args["env_name"], device=device, center=args.center_obs)
                 critic_obs_normalizer = SelectiveEmpiricalNormalization(env_name=terminal_args["env_name"], device=device, center=args.center_obs)
-            elif normalization_type == "structured_empirical":
-                obs_normalizer = StructuredEmpiricalNormalization(env_name=terminal_args["env_name"], device=device, center=args.center_obs)
-                critic_obs_normalizer = StructuredEmpiricalNormalization(env_name=terminal_args["env_name"], device=device, center=args.center_obs)
             else:
                 raise ValueError(f"Unknown normalization type: {normalization_type}")
         else:
@@ -653,7 +649,7 @@ def main():
         critic_obs = torch.as_tensor(critic_obs, device=device, dtype=torch.float)
     else:
         obs = envs.reset()
-    pbar = tqdm.tqdm(total=args.total_timesteps, initial=global_step, mininterval=120)
+    pbar = tqdm.tqdm(total=args.total_timesteps, initial=global_step)
     dones = None
 
     while global_step < args.total_timesteps:

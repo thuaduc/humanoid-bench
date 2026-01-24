@@ -23,16 +23,16 @@ from fast_td3.environments.humanoid_bench_env import HumanoidBenchEnv
 
 
 def profile_egnn_v3(
-    env_name: str = "h1-balance_simple-v1",
-    num_envs: int = 64,
-    batch_size: int = 32768,
-    model_config_path: str = "model_config/egnn.json",
-    num_iterations: int = 1,
-    warmup_iterations: int = 100,
-    profile_output_dir: str = "./logs/profiler",
-    profile_forward: bool = True,
-    profile_explore: bool = True,
-    use_cuda: bool = True,
+    env_name: str,
+    num_envs: int,
+    batch_size: int,
+    model_config_path: str,
+    num_iterations: int,
+    warmup_iterations: int,
+    profile_output_dir: str,
+    profile_forward: bool,
+    profile_explore: bool,
+    use_cuda: bool,
 ):
     """
     Profile EGNN_V3 actor forward and explore passes
@@ -203,7 +203,7 @@ def main():
     parser.add_argument(
         "--num_envs",
         type=int,
-        default=64,
+        default=128,
         help="Number of parallel environments",
     )
     parser.add_argument(
@@ -221,7 +221,7 @@ def main():
     parser.add_argument(
         "--num_iterations",
         type=int,
-        default=1,
+        default=100,
         help="Number of iterations to profile",
     )
     parser.add_argument(

@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 
 from tensordict import TensorDict
-from humanoid_bench.envs.custom_env import flatten_obs, unflatten_obs, get_obs_shapes
+from humanoid_bench.envs.custom_env import get_obs_shapes
 
 class SimpleReplayBuffer(nn.Module):
     def __init__(
@@ -522,62 +522,6 @@ class ScalarEmpiricalNormalization(nn.Module):
     @torch.jit.unused
     def inverse(self, y):
         return y * (self._std + self.eps) + self._mean
-
-
-class StructuredEmpiricalNormalization(nn.Module):
-    POSITION_KEYS = ["joint_x", "object_x"]
-    SKIP_KEYS = []
-
-    def __init__(self, env_name: str, device, eps=1e-2, until=50_000, center=True):
-        """Initialize StructuredEmpiricalNormalization module.
-
-        Args:
-            env_name (str): Environment name to determine observation structure.
-            device: Device to place the normalizers on.
-            eps (float): Small value for stability.
-            until (int or None): If specified, stop learning after this many samples.
-        """
-        super().__init__()
-        self.env_name = env_name
-        self.device = device
-        self.eps = eps
-        self.until = until
-        self.obs_shapes = get_obs_shapes(env_name)
-
-        # Create normalizers for each feature type (except hardcoded skip keys)
-        self.normalizers = nn.ModuleDict()
-        for key, shape in self.obs_shapes.items():
-            if key in self.SKIP_KEYS:
-                continue
-            elif key in self.POSITION_KEYS:
-                self.normalizers[key] = ScalarEmpiricalNormalization(
-                    device=device, eps=eps, until=until, center=center
-                )
-            else:
-                self.normalizers[key] = EmpiricalNormalization(
-                    shape=shape, device=device, eps=eps, until=until, center=center
-                )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Normalize dict observations.
-
-        Args:
-            x (torch.Tensor): Flat observation tensor.
-
-        Returns:
-            torch.Tensor: Normalized flat observation tensor.
-        """
-        
-        x_dict = unflatten_obs(x, self.env_name)
-        
-        for key, value in x_dict.items():
-            if key in self.SKIP_KEYS:
-                continue
-            elif key in self.normalizers:
-                x_dict[key] = self.normalizers[key](value)
-
-        return flatten_obs(x_dict, self.env_name)
 
 
 class SelectiveEmpiricalNormalization(nn.Module):
