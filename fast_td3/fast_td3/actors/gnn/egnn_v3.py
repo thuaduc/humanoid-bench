@@ -90,9 +90,9 @@ class EGNN_V3(nn.Module):
         )
         # Combined MLP for joint + object features
         self.joint_object_mlp = nn.Sequential(
-            nn.Linear(self.joint_object_dim, self.hidden_nf * 5),
+            nn.Linear(self.joint_object_dim, self.hidden_nf * 4),
             act_fn,
-            nn.Linear(self.hidden_nf * 5, self.hidden_nf  * 2),
+            nn.Linear(self.hidden_nf * 4, self.hidden_nf * 2),
             act_fn,
             nn.Linear(self.hidden_nf * 2, self.hidden_nf),
             act_fn,
@@ -121,9 +121,7 @@ class EGNN_V3(nn.Module):
         h_joints = self.joint_embedding_in(h_joints)
         x_joints = obs["joint_x"].reshape(-1, 3)
         
-        h_objects = torch.cat(
-            [obs["object_x"], obs["object_quaternions"], obs["object_velocities"]],dim=-1,
-        ).reshape(current_batch_size, -1) 
+        h_objects = obs["object_features"].reshape(current_batch_size, -1) 
         
         if "object_others" in obs:
             h_objects = torch.cat([h_objects, obs["object_others"]], dim=-1)
@@ -142,17 +140,27 @@ class EGNN_V3(nn.Module):
         return actions
 
     def generate_joint_edges(self, batch_size: int):
-        src, dst = zip(*self.graph_builder.robot.joint_connections)
+        n_nodes = self.num_joints
+        idx = torch.arange(n_nodes, device=self.device)
 
-        src = torch.tensor(src, dtype=torch.long, device=self.device)
-        dst = torch.tensor(dst, dtype=torch.long, device=self.device)
+        # Fully-connected directed graph without self-loops
+        row = idx.repeat_interleave(n_nodes)
+        col = idx.repeat(n_nodes)
+        mask = row != col
+        row, col = row[mask], col[mask]
 
-        # Create batch offsets and expand edges
-        offsets = torch.arange(batch_size, device=self.device) * self.num_joints
-        src_batch = (src.unsqueeze(0) + offsets.unsqueeze(1)).flatten()
-        dst_batch = (dst.unsqueeze(0) + offsets.unsqueeze(1)).flatten()
+        if batch_size == 1:
+            return torch.stack([row, col], dim=0)
 
-        return torch.stack([src_batch, dst_batch])
+        # Batch offsets
+        offsets = torch.arange(batch_size, device=self.device) * n_nodes
+        row = row.unsqueeze(0) + offsets.unsqueeze(1)
+        col = col.unsqueeze(0) + offsets.unsqueeze(1)
+
+        return torch.stack(
+            [row.reshape(-1), col.reshape(-1)],
+            dim=0
+        )
     
     def get_cached_joint_edges(self, current_batch_size: int):
         """Get cached edge indices for the joint graph."""
