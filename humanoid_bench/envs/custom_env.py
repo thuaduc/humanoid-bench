@@ -68,7 +68,7 @@ class CustomObservation:
     @staticmethod
     def get_obs_shapes():
         return {
-            "object_features": (13),
+            "object_features": (13,),
             "joint_positions": (19,),
             "joint_velocities": (19,),
             "joint_x": (19, 3),

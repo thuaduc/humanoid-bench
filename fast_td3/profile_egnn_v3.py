@@ -221,7 +221,7 @@ def main():
     parser.add_argument(
         "--num_iterations",
         type=int,
-        default=100,
+        default=1000,
         help="Number of iterations to profile",
     )
     parser.add_argument(
