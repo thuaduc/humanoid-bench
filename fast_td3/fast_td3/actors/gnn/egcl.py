@@ -100,23 +100,23 @@ class E_GCL(nn.Module):
             nn.LayerNorm(output_nf),
         )
 
-        layer = nn.Linear(hidden_nf, 1, bias=False)
-        torch.nn.init.xavier_uniform_(layer.weight, gain=0.001)
+        # layer = nn.Linear(hidden_nf, 1, bias=False)
+        # torch.nn.init.xavier_uniform_(layer.weight, gain=0.001)
 
-        coord_mlp = []
-        coord_mlp.append(nn.Linear(hidden_nf, hidden_nf))
-        coord_mlp.append(act_fn)
-        coord_mlp.append(layer)
+        # coord_mlp = []
+        # coord_mlp.append(nn.Linear(hidden_nf, hidden_nf))
+        # coord_mlp.append(act_fn)
+        # coord_mlp.append(layer)
 
-        if self.tanh:
-            coord_mlp.append(nn.Tanh())
-        self.coord_mlp = nn.Sequential(*coord_mlp)
+        # if self.tanh:
+        #     coord_mlp.append(nn.Tanh())
+        # self.coord_mlp = nn.Sequential(*coord_mlp)
 
-        if coord_norm:
-            self.coord_norm = CoordNorm(eps=1e-8, scale_init=1.0)
+        # if coord_norm:
+        #     self.coord_norm = CoordNorm(eps=1e-8, scale_init=1.0)
 
-        if self.attention:
-            self.att_mlp = nn.Sequential(nn.Linear(hidden_nf, 1), nn.Sigmoid())
+        # if self.attention:
+        #     self.att_mlp = nn.Sequential(nn.Linear(hidden_nf, 1), nn.Sigmoid())
 
     def coord2radial(self, edge_index, coord):
         """
@@ -128,11 +128,11 @@ class E_GCL(nn.Module):
         coord_diff = coord[row] - coord[col]
         radial = coord_diff.pow(2).sum(dim=1, keepdim=True)
 
-        if self.normalize:
-            norm = torch.sqrt(radial).detach() + self.epsilon
-            coord_diff = coord_diff / norm
+        # if self.normalize:
+        #     norm = torch.sqrt(radial).detach() + self.epsilon
+        #     coord_diff = coord_diff / norm
 
-        return radial, coord_diff
+        return radial
 
     def edge_model(self, source, target, radial, edge_attr):
         """
@@ -189,11 +189,11 @@ class E_GCL(nn.Module):
     def forward(self, h, edge_index, coord, edge_attr=None, node_attr=None):
         row, col = edge_index
 
-        radial, coord_diff = self.coord2radial(edge_index, coord)
+        radial = self.coord2radial(edge_index, coord)
 
         edge_feat = self.edge_model(h[row], h[col], radial, edge_attr)
 
-        coord = self.coord_model(coord, edge_index, coord_diff, edge_feat)
+        # coord = self.coord_model(coord, edge_index, coord_diff, edge_feat)
 
         h, agg = self.node_model(h, edge_index, edge_feat, node_attr)
 
