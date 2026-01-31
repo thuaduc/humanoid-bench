@@ -115,8 +115,8 @@ class E_GCL(nn.Module):
         # if coord_norm:
         #     self.coord_norm = CoordNorm(eps=1e-8, scale_init=1.0)
 
-        # if self.attention:
-        #     self.att_mlp = nn.Sequential(nn.Linear(hidden_nf, 1), nn.Sigmoid())
+        if self.attention:
+            self.att_mlp = nn.Sequential(nn.Linear(hidden_nf, 1), nn.Sigmoid())
 
     def coord2radial(self, edge_index, coord):
         """

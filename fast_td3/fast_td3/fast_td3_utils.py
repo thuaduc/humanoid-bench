@@ -393,6 +393,7 @@ class EmpiricalNormalization(nn.Module):
     def std(self):
         return self._std.squeeze(0).clone()
 
+    @torch.no_grad()
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.shape[1:] != self._mean.shape[1:]:
             raise ValueError(
@@ -577,7 +578,8 @@ class SelectiveEmpiricalNormalization(nn.Module):
             self.register_buffer("_freeze_mask", freeze_mask)
         else:
             self.register_buffer("_freeze_mask", None)
-
+    
+    @torch.no_grad()
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Normalize flat observations with frozen indices support.

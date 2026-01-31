@@ -2,8 +2,7 @@ from torch import nn
 import torch
 
 from fast_td3.robots.graph_builder import GraphBuilder
-from fast_td3.actors.gnn.egcl import E_GCL, env_with_object
-from fast_td3.fast_td3_utils import EmpiricalNormalization
+from fast_td3.actors.gnn.egcl import E_GCL
 from humanoid_bench.envs.custom_env import unflatten_obs
 
 
@@ -63,9 +62,12 @@ class EGNN_V3(nn.Module):
         self.object_feature_dim = object_feature_dim
         self.graph_builder = GraphBuilder(env_name, batch_size, device, robot)
         self.num_joints = self.graph_builder.robot.num_joints
-        self._joint_edges_cache = {}
         
-        self.joint_out_dim = 8
+        self._joint_edges_cache = {}
+        self._joint_edges_cache[self.batch_size] = self.generate_joint_edges(self.batch_size)
+        self._joint_edges_cache[128] = self.generate_joint_edges(4)
+        
+        self.joint_out_dim = 2
         
         self.joint_object_dim = self.joint_out_dim * self.num_joints + self.object_feature_dim
 
@@ -113,8 +115,11 @@ class EGNN_V3(nn.Module):
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         h_joints, x_joints, h_objects = unflatten_obs(obs, self.env_name)
+        # h_objects = obs[:, 0:26] 
+        # x_joints = obs[:, 64:121].reshape(-1, 3)
+        # h_joints = obs[:, 26:64].reshape(-1, 2)
         current_batch_size = h_objects.shape[0]
-        joint_edges = self.get_cached_joint_edges(current_batch_size)
+        joint_edges = self._joint_edges_cache[current_batch_size]
 
         # Embed joint inputs (already stacked as (batch*19, 2))
         h_joints = self.joint_embedding_in(h_joints) 
@@ -154,12 +159,3 @@ class EGNN_V3(nn.Module):
             [row.reshape(-1), col.reshape(-1)],
             dim=0
         )
-    
-    def get_cached_joint_edges(self, current_batch_size: int):
-        """Get cached edge indices for the joint graph."""
-        if current_batch_size in self._joint_edges_cache:
-            return self._joint_edges_cache[current_batch_size]
-        
-        edges = self.generate_joint_edges(current_batch_size)
-        self._joint_edges_cache[current_batch_size] = edges
-        return edges

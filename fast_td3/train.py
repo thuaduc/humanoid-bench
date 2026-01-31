@@ -11,6 +11,7 @@ if sys.platform != "darwin":
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["JAX_DEFAULT_MATMUL_PRECISION"] = "highest"
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["MKL_THREADING_LAYER"] = "GNU"
 import random
 import tqdm
 import wandb
@@ -585,7 +586,7 @@ def main():
 
         # Log training metrics
         logs_dict["actor_grad_norm"] = actor_grad_norm.detach()
-        logs_dict["actor_param_norm"] = actor_param_norm.detach()  # <-- new line
+        logs_dict["actor_param_norm"] = actor_param_norm.detach()
         logs_dict["actor_loss"] = actor_loss.detach()
         return logs_dict
 
@@ -593,7 +594,7 @@ def main():
         mode = None
         update_main = torch.compile(update_main, mode=mode)
         update_pol = torch.compile(update_pol, mode=mode)
-        policy = torch.compile(policy, mode=mode)
+        policy = torch.compile(policy, fullgraph=True)
         normalize_obs = torch.compile(normalize_obs, mode=mode)
         normalize_critic_obs = torch.compile(normalize_critic_obs, mode=mode)
 
