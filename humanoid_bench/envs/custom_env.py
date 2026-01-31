@@ -52,15 +52,13 @@ class CustomObservation:
         joint_velocities = qvel[6:]
         joint_x = xanchor[1:, :] - xanchor[0, :]  # relative to pelvis
 
-        # Interleave joint positions and velocities
-        joint_data = np.column_stack([joint_positions, joint_velocities]).flatten()
-
-        # Concatenate into flat vector
+        # Concatenate into flat vector (no interleaving for performance)
         return np.concatenate(
             [
                 pelvis,
                 pelvis_velocities,
-                joint_data,
+                joint_positions,
+                joint_velocities,
                 joint_x.flatten(),
             ]
         )
@@ -83,12 +81,17 @@ class CustomObservation:
     @torch.jit.script
     def unflatten_obs(flat_obs):
         # flat_obs: (batch, obs_dim)
-        h_joints = flat_obs[:, 13:51].reshape(-1, 2)
+        # Extract separate blocks: positions [13:32], velocities [32:51]
+        joint_positions = flat_obs[:, 13:32]  # (batch, 19)
+        joint_velocities = flat_obs[:, 32:51]  # (batch, 19)
+        
+        # Stack to (batch*19, 2) format [position, velocity]
+        h_joints = torch.stack([joint_positions.reshape(-1), joint_velocities.reshape(-1)], dim=1)
         
         # Reshape joint coordinates: (batch*19, 3)
         x_joints = flat_obs[:, 51:].reshape(-1, 3)
         
-        # h_objects: (batch, 35)
+        # h_objects: (batch, 13)
         h_objects = flat_obs[:, 0:13]
         
         return h_joints, x_joints, h_objects
@@ -137,9 +140,6 @@ class BalanceSimple(CustomObservation, BalanceSimpleV0):
         xanchor = self._env.data.xanchor.copy()
         xanchor = (xanchor[:, :] - xanchor[0, :]) / 8  # normalize positions
 
-        # Interleave joint positions and velocities for (19, 2) layout
-        joint_data = np.column_stack([qpos[7:26], qvel[6:25]]).flatten()
-
         # Concatenate with hard-coded order: pelvis first, board second
         return np.concatenate(
             [
@@ -148,7 +148,8 @@ class BalanceSimple(CustomObservation, BalanceSimpleV0):
                 xanchor[20, :],           # [13:16] board position
                 qpos[29:33],              # [16:20] board quaternion
                 qvel[25:31],              # [20:26] board velocities
-                joint_data,               # [26:64] joint data (pos, vel interleaved)
+                qpos[7:26],               # [26:45] joint positions
+                qvel[6:25],               # [45:64] joint velocities
                 xanchor[1:20, :].flatten(),  # [64:121] joint_x
             ]
         )
@@ -165,9 +166,15 @@ class BalanceSimple(CustomObservation, BalanceSimpleV0):
     @staticmethod
     @torch.jit.script
     def unflatten_obs(flat_obs):
+        # Extract separate blocks: positions [26:45], velocities [45:64]
+        joint_positions = flat_obs[:, 26:45]  # (batch, 19)
+        joint_velocities = flat_obs[:, 45:64]  # (batch, 19)
+        
+        # Stack to (batch*19, 2) format [position, velocity]
+        h_joints = torch.stack([joint_positions.reshape(-1), joint_velocities.reshape(-1)], dim=1)
+        
         h_objects = flat_obs[:, 0:26] 
         x_joints = flat_obs[:, 64:121].reshape(-1, 3)
-        h_joints = flat_obs[:, 26:64].reshape(-1, 2)
        
         return h_joints, x_joints, h_objects
 
@@ -190,16 +197,14 @@ class SitHard(CustomObservation, SitHardV0):
         xanchor = self._env.data.xanchor.copy()
         xanchor = (xanchor[:, :] - xanchor[0, :]) / 8  # normalize positions
 
-        # Interleave joint positions and velocities
-        joint_data = np.column_stack([qpos[7:26], qvel[6:25]]).flatten()
-
         return np.concatenate(
             [
                 qpos[0:7],                # pelvis position and quaternion
                 qpos[26:30],              # board position and quaternion
                 qvel[0:6],                # pelvis velocities
                 qvel[25:31],              # board velocities
-                joint_data,               # joint data (pos, vel interleaved)
+                qpos[7:26],               # joint positions
+                qvel[6:25],               # joint velocities
                 xanchor[1:20, :].flatten(),  # joint_x
             ]
         )
@@ -217,7 +222,12 @@ class SitHard(CustomObservation, SitHardV0):
     @torch.jit.script
     def unflatten_obs(flat_obs):
         # flat_obs: (batch, obs_dim)
-        h_joints = flat_obs[:, 26:64].reshape(-1, 2)
+        # Extract separate blocks: positions [26:45], velocities [45:64]
+        joint_positions = flat_obs[:, 26:45]  # (batch, 19)
+        joint_velocities = flat_obs[:, 45:64]  # (batch, 19)
+        
+        # Stack to (batch*19, 2) format [position, velocity]
+        h_joints = torch.stack([joint_positions.reshape(-1), joint_velocities.reshape(-1)], dim=1)
         
         # Reshape joint coordinates: (batch*19, 3)
         x_joints = flat_obs[:, 64:].reshape(-1, 3)
@@ -252,16 +262,14 @@ class Reach(CustomObservation, ReachV0):
         xanchor = self._env.data.xanchor.copy()
         xanchor = (xanchor[:, :] - xanchor[0, :]) / 8  # normalize positions
         
-        # Interleave joint positions and velocities
-        joint_data = np.column_stack([qpos[7:26], qvel[6:25]]).flatten()
-        
         return np.concatenate(
             [
                 qpos[0:7],                # pelvis position and quaternion
                 qvel[0:6],                # pelvis velocities
                 self.robot.left_hand_position(),  # object_others: left_hand
                 self.goal,                # object_others: target
-                joint_data,               # joint data (pos, vel interleaved)
+                qpos[7:26],               # joint positions
+                qvel[6:25],               # joint velocities
                 xanchor[1:20, :].flatten(),  # joint_x
             ]
         )
@@ -279,7 +287,12 @@ class Reach(CustomObservation, ReachV0):
     @torch.jit.script
     def unflatten_obs(flat_obs):
         # flat_obs: (batch, obs_dim)
-        h_joints = flat_obs[:, 19:57].reshape(-1, 2)
+        # Extract separate blocks: positions [19:38], velocities [38:57]
+        joint_positions = flat_obs[:, 19:38]  # (batch, 19)
+        joint_velocities = flat_obs[:, 38:57]  # (batch, 19)
+        
+        # Stack to (batch*19, 2) format [position, velocity]
+        h_joints = torch.stack([joint_positions.reshape(-1), joint_velocities.reshape(-1)], dim=1)
         
         # Reshape joint coordinates: (batch*19, 3)
         x_joints = flat_obs[:, 57:114].reshape(-1, 3)
@@ -318,9 +331,6 @@ class Push(CustomObservation, PushV0):
         box_quaternion = qpos[-4:]
         dofadr = self._env.named.model.body_dofadr["object"]
         box_linear_vel = qvel[dofadr : dofadr + 3]
-        
-        # Interleave joint positions and velocities
-        joint_data = np.column_stack([qpos[7:26], qvel[6:25]]).flatten()
 
         # Concatenate with hard-coded order: pelvis first, box second
         return np.concatenate(
@@ -334,7 +344,8 @@ class Push(CustomObservation, PushV0):
                 self.goal,                # [26:29] object_others: target
                 box_position,             # [29:32] object_others: box
                 box_linear_vel,           # [32:35] object_others: box_vel
-                joint_data,               # [35:73] joint data (pos, vel interleaved)
+                qpos[7:26],               # [35:54] joint positions
+                qvel[6:25],               # [54:73] joint velocities
                 xanchor[1:20, :].flatten(),  # [73:130] joint_x
             ]
         )
@@ -352,7 +363,13 @@ class Push(CustomObservation, PushV0):
     @torch.jit.script
     def unflatten_obs(flat_obs):
         # flat_obs: (batch, obs_dim)
-        h_joints = flat_obs[:, 35:73].reshape(-1, 2)
+        # Extract separate blocks: positions [35:54], velocities [54:73]
+        joint_positions = flat_obs[:, 35:54]  # (batch, 19)
+        joint_velocities = flat_obs[:, 54:73]  # (batch, 19)
+        
+        # Stack to (batch*19, 2) format [position, velocity]
+        h_joints = torch.stack([joint_positions.reshape(-1), joint_velocities.reshape(-1)], dim=1)
+        
         x_joints = flat_obs[:, 73:130].reshape(-1, 3)
         h_objects = flat_obs[:, 0:35]
         
@@ -390,15 +407,14 @@ class Door(CustomObservation, DoorV0):
         door_hinge_vel = qvel[25]
         door_hatch_hinge_vel = qvel[26]
         
-        joint_data = np.column_stack([joint_positions, joint_velocities]).flatten()
-        
         return np.concatenate(
             [
                 pelvis,
                 pelvis_velocities,
                 np.array([door_hinge_pos, door_hatch_hinge_pos]),
                 np.array([door_hinge_vel, door_hatch_hinge_vel]),
-                joint_data,
+                joint_positions,
+                joint_velocities,
                 joint_x.flatten(),
             ]
         )
@@ -416,7 +432,12 @@ class Door(CustomObservation, DoorV0):
     @torch.jit.script
     def unflatten_obs(flat_obs):     
         # flat_obs: (batch, obs_dim)
-        h_joints = flat_obs[:, 17:55].reshape(-1, 2)
+        # Extract separate blocks: positions [17:36], velocities [36:55]
+        joint_positions = flat_obs[:, 17:36]  # (batch, 19)
+        joint_velocities = flat_obs[:, 36:55]  # (batch, 19)
+        
+        # Stack to (batch*19, 2) format [position, velocity]
+        h_joints = torch.stack([joint_positions.reshape(-1), joint_velocities.reshape(-1)], dim=1)
         
         # Reshape joint coordinates: (batch*19, 3)
         x_joints = flat_obs[:, 55:].reshape(-1, 3)
