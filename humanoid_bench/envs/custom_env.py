@@ -85,8 +85,8 @@ class CustomObservation:
         joint_positions = flat_obs[:, 13:32]  # (batch, 19)
         joint_velocities = flat_obs[:, 32:51]  # (batch, 19)
         
-        # Stack to (batch*19, 2) format [position, velocity]
-        h_joints = torch.stack([joint_positions.reshape(-1), joint_velocities.reshape(-1)], dim=1)
+        # Stack to (batch, 19, 2) format [position, velocity] then reshape to (batch*19, 2)
+        h_joints = torch.stack([joint_positions, joint_velocities], dim=2).reshape(-1, 2)
         
         # Reshape joint coordinates: (batch*19, 3)
         x_joints = flat_obs[:, 51:].reshape(-1, 3)
@@ -170,8 +170,8 @@ class BalanceSimple(CustomObservation, BalanceSimpleV0):
         joint_positions = flat_obs[:, 26:45]  # (batch, 19)
         joint_velocities = flat_obs[:, 45:64]  # (batch, 19)
         
-        # Stack to (batch*19, 2) format [position, velocity]
-        h_joints = torch.stack([joint_positions.reshape(-1), joint_velocities.reshape(-1)], dim=1)
+        # Stack to (batch, 19, 2) format [position, velocity] then reshape to (batch*19, 2)
+        h_joints = torch.stack([joint_positions, joint_velocities], dim=2).reshape(-1, 2)
         
         h_objects = flat_obs[:, 0:26] 
         x_joints = flat_obs[:, 64:121].reshape(-1, 3)
@@ -226,8 +226,8 @@ class SitHard(CustomObservation, SitHardV0):
         joint_positions = flat_obs[:, 26:45]  # (batch, 19)
         joint_velocities = flat_obs[:, 45:64]  # (batch, 19)
         
-        # Stack to (batch*19, 2) format [position, velocity]
-        h_joints = torch.stack([joint_positions.reshape(-1), joint_velocities.reshape(-1)], dim=1)
+        # Stack to (batch, 19, 2) format [position, velocity] then reshape to (batch*19, 2)
+        h_joints = torch.stack([joint_positions, joint_velocities], dim=2).reshape(-1, 2)
         
         # Reshape joint coordinates: (batch*19, 3)
         x_joints = flat_obs[:, 64:].reshape(-1, 3)
@@ -291,8 +291,8 @@ class Reach(CustomObservation, ReachV0):
         joint_positions = flat_obs[:, 19:38]  # (batch, 19)
         joint_velocities = flat_obs[:, 38:57]  # (batch, 19)
         
-        # Stack to (batch*19, 2) format [position, velocity]
-        h_joints = torch.stack([joint_positions.reshape(-1), joint_velocities.reshape(-1)], dim=1)
+        # Stack to (batch, 19, 2) format [position, velocity] then reshape to (batch*19, 2)
+        h_joints = torch.stack([joint_positions, joint_velocities], dim=2).reshape(-1, 2)
         
         # Reshape joint coordinates: (batch*19, 3)
         x_joints = flat_obs[:, 57:114].reshape(-1, 3)
@@ -367,8 +367,8 @@ class Push(CustomObservation, PushV0):
         joint_positions = flat_obs[:, 35:54]  # (batch, 19)
         joint_velocities = flat_obs[:, 54:73]  # (batch, 19)
         
-        # Stack to (batch*19, 2) format [position, velocity]
-        h_joints = torch.stack([joint_positions.reshape(-1), joint_velocities.reshape(-1)], dim=1)
+        # Stack to (batch, 19, 2) format [position, velocity] then reshape to (batch*19, 2)
+        h_joints = torch.stack([joint_positions, joint_velocities], dim=2).reshape(-1, 2)
         
         x_joints = flat_obs[:, 73:130].reshape(-1, 3)
         h_objects = flat_obs[:, 0:35]
@@ -436,8 +436,8 @@ class Door(CustomObservation, DoorV0):
         joint_positions = flat_obs[:, 17:36]  # (batch, 19)
         joint_velocities = flat_obs[:, 36:55]  # (batch, 19)
         
-        # Stack to (batch*19, 2) format [position, velocity]
-        h_joints = torch.stack([joint_positions.reshape(-1), joint_velocities.reshape(-1)], dim=1)
+        # Stack to (batch, 19, 2) format [position, velocity] then reshape to (batch*19, 2)
+        h_joints = torch.stack([joint_positions, joint_velocities], dim=2).reshape(-1, 2)
         
         # Reshape joint coordinates: (batch*19, 3)
         x_joints = flat_obs[:, 55:].reshape(-1, 3)
