@@ -28,7 +28,6 @@ torch.set_float32_matmul_precision("high")
 from fast_td3.fast_td3_utils import (
     EmpiricalNormalization,
     SimpleReplayBufferGNN,
-    EmpiricalNormalization,
     SelectiveEmpiricalNormalization,
     save_params,
 )

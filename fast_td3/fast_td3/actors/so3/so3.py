@@ -11,15 +11,16 @@ TODO:
     3. Move some functions outside classes and to separate files.
 """
 
-import os
 import math
 import torch
-import torch.nn as nn
 
 try:
     from e3nn import o3
     from e3nn.o3 import FromS2Grid, ToS2Grid
 except ImportError:
+    # Optional dependency: if `e3nn` is not installed, SO(3) features that rely
+    # on these imports will be unavailable, but the rest of the package can
+    # still be used.
     pass
 
 from fast_td3.actors.so3.wigner import wigner_D
@@ -434,7 +435,6 @@ class SO3_Rotation(torch.nn.Module):
 
     def set_wigner(self, rot_mat3x3):
         self.device, self.dtype = rot_mat3x3.device, rot_mat3x3.dtype
-        length = len(rot_mat3x3)
         self.wigner = self.RotationToWignerDMatrix(rot_mat3x3, 0, self.lmax)
         self.wigner_inv = torch.transpose(self.wigner, 1, 2).contiguous()
         self.wigner = self.wigner.detach()
