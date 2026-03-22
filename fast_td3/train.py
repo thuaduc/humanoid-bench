@@ -3,11 +3,9 @@ import sys
 import json
 import time
 import uuid
-
 os.environ["TORCHDYNAMO_INLINE_INBUILT_NN_MODULES"] = "1"
 os.environ["OMP_NUM_THREADS"] = "1"
-if sys.platform != "darwin":
-    os.environ["MUJOCO_GL"] = "egl"
+os.environ["MUJOCO_GL"] = "egl"
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["JAX_DEFAULT_MATMUL_PRECISION"] = "highest"
 import random
@@ -27,12 +25,13 @@ torch.set_float32_matmul_precision("high")
 from fast_td3.fast_td3_utils import (
     EmpiricalNormalization,
     SimpleReplayBufferGNN,
+    EmpiricalNormalization,
     save_params,
 )
 from fast_td3 import Critic
 
 from fast_td3.train_utils import create_actor, collect_gradient_stats
-from fast_td3.hyperparams import HumanoidBenchArgs
+from fast_td3.hyperparams import get_args
 import argparse
 from fast_td3.environments.humanoid_bench_env import HumanoidBenchEnv
 from IPython.display import display, HTML
@@ -53,12 +52,6 @@ def main():
     )
     parser.add_argument("--env_name", type=str, default="h1-stand-v0")
     parser.add_argument(
-        "--total_timesteps",
-        type=int,
-        default=50000,
-        help="Total number of timesteps to train for.",
-    )
-    parser.add_argument(
         "--render_interval",
         type=int,
         default=5000,
@@ -73,11 +66,11 @@ def main():
     parser.add_argument(
         "--num_envs",
         type=int,
-        default=16,
+        default=128,
         help="Number of parallel environments to use.",
     )
     parser.add_argument(
-        "--batch_size", type=int, default=8192, help="Batch size for training."
+        "--batch_size", type=int, default=16384, help="Batch size for training."
     )
     parser.add_argument("--wandb", action="store_true", help="Enable wandb logging")
     parser.add_argument(
@@ -99,23 +92,23 @@ def main():
         help="Description of the task/experiment to log to wandb.",
     )
 
-    terminal_args = vars(parser.parse_args())
+    terminal_args, remaining_args = parser.parse_known_args()
+    terminal_args = vars(terminal_args)
 
     if terminal_args["model_kwargs"] is not None:
         with open(terminal_args["model_kwargs"], "r") as f:
             model_kwargs = json.load(f)
     else:
         model_kwargs = {}
-
-    args = HumanoidBenchArgs(
-        env_name=terminal_args["env_name"],
-        total_timesteps=terminal_args["total_timesteps"],
-        render_interval=terminal_args["render_interval"],
-        eval_interval=terminal_args["eval_interval"],
-        num_envs=terminal_args["num_envs"],
-        batch_size=terminal_args["batch_size"],
-        model_kwargs=model_kwargs,
-    )
+    
+    # Pass remaining args to tyro via sys.argv, including --env_name so tyro can select the right Args class
+    import sys
+    sys.argv = [sys.argv[0], "--env_name", terminal_args["env_name"]] + remaining_args
+        
+    args = get_args()
+    args.render_interval = terminal_args["render_interval"]
+    args.eval_interval = terminal_args["eval_interval"]
+    args.model_kwargs = model_kwargs
 
     print(f"Training with args: {terminal_args}")
 
@@ -130,7 +123,7 @@ def main():
         
         wandb.init(
             entity="thuaduc24042001-technical-university-of-munich",
-            project="FastTD3 - new",
+            project="Benchmark final",
             name=run_name,
             config=config,
             save_code=True,
@@ -140,11 +133,14 @@ def main():
             ),
         )
         
-        wandb.save("fast_td3/fast_td3/actors/gnn/egnn.py")
-        wandb.save("fast_td3/fast_td3/robots/H1.py")
-        wandb.save("fast_td3/fast_td3/robots/graph_builder.py")
-
-
+        wandb.save("fast_td3/actors/gnn/egnn.py")
+        wandb.save("fast_td3/actors/gnn/egnn_v2.py")
+        wandb.save("fast_td3/actors/gnn/egnn_v3.py")
+        wandb.save("fast_td3/actors/gnn/egnn_v5.py")
+        wandb.save("fast_td3/robots/H1.py")
+        wandb.save("fast_td3/robots/graph_builder.py")
+        wandb.save("fast_td3/train.py")
+        
 
     amp_enabled = args.amp and args.cuda and torch.cuda.is_available()
     amp_device_type = (
@@ -204,7 +200,6 @@ def main():
 
     normalize_obs = obs_normalizer.forward
     normalize_critic_obs = critic_obs_normalizer.forward
-    normalize_xanchor = xanchor_normalizer.forward
 
     # Create the main actor and actor detach (twin actor)
     actor = create_actor(
@@ -294,7 +289,6 @@ def main():
 
         actor.load_state_dict(torch_checkpoint["actor_state_dict"])
         obs_normalizer.load_state_dict(torch_checkpoint["obs_normalizer_state"])
-        xanchor_normalizer.load_state_dict(torch_checkpoint["xanchor_normalizer_state"])
         critic_obs_normalizer.load_state_dict(
             torch_checkpoint["critic_obs_normalizer_state"]
         )
@@ -319,7 +313,6 @@ def main():
                 - average_episode_length: Mean number of steps across all evaluation episodes
         """
         obs_normalizer.eval()
-        xanchor_normalizer.eval()
         num_eval_envs = eval_envs.num_envs
         episode_returns = torch.zeros(num_eval_envs, device=device)
         episode_lengths = torch.zeros(num_eval_envs, device=device)
@@ -336,7 +329,6 @@ def main():
                 device_type=amp_device_type, dtype=amp_dtype, enabled=amp_enabled
             ):
                 obs = normalize_obs(obs)
-                xanchor = normalize_xanchor(xanchor)
                 actions = actor(obs, xanchor)
 
             next_obs, rewards, dones, _, next_xanchor = eval_envs.step(actions.float())
@@ -353,12 +345,10 @@ def main():
             xanchor = next_xanchor
 
         obs_normalizer.train()
-        xanchor_normalizer.train()
         return episode_returns.mean().item(), episode_lengths.mean().item()
 
     def render_with_rollout():
         obs_normalizer.eval()
-        xanchor_normalizer.eval()
 
         # Quick rollout for rendering
         if env_type == "humanoid_bench":
@@ -378,7 +368,6 @@ def main():
                 device_type=amp_device_type, dtype=amp_dtype, enabled=amp_enabled
             ):
                 obs = normalize_obs(obs)
-                xanchor = normalize_xanchor(xanchor)
                 actions = actor(obs, xanchor)
             next_obs, _, done, _, next_xanchor = render_env.step(actions.float())
             if env_type == "mujoco_playground":
@@ -397,7 +386,6 @@ def main():
             renders = render_env.render_trajectory(renders)
 
         obs_normalizer.train()
-        xanchor_normalizer.train()
         return renders
 
     policy_noise = args.policy_noise
@@ -561,9 +549,31 @@ def main():
             # Actor loss: negative Q-value (we want to maximize Q, so minimize -Q)
             actor_loss = -qf_value.mean()
 
+        # DEBUG: Check for NaN before backward pass
+        import sys
+        if torch.isnan(actor_loss):
+            print(f"[DEBUG TRAIN] NaN detected in actor_loss BEFORE backward!", flush=True)
+            sys.stdout.flush()
+        
+        actor_output = actor(data["observations"], data["xanchors"])
+        if torch.isnan(actor_output).any():
+            print(f"[DEBUG TRAIN] NaN in actor output: {torch.isnan(actor_output).sum()} values", flush=True)
+            print(f"  actor_output stats: min={actor_output[~torch.isnan(actor_output)].min() if (~torch.isnan(actor_output)).any() else 'all_nan'}, max={actor_output[~torch.isnan(actor_output)].max() if (~torch.isnan(actor_output)).any() else 'all_nan'}", flush=True)
+            sys.stdout.flush()
+
         # Perform gradient ascent on actor network (gradient descent on negative Q-value)
         actor_optimizer.zero_grad(set_to_none=True)
         scaler.scale(actor_loss).backward()
+        
+        # DEBUG: Check gradients after backward
+        import sys
+        for name, param in actor.named_parameters():
+            if param.grad is not None and torch.isnan(param.grad).any():
+                print(f"[DEBUG TRAIN] NaN in gradient of {name}: {torch.isnan(param.grad).sum()} values", flush=True)
+                print(f"  grad stats: min={param.grad[~torch.isnan(param.grad)].min() if (~torch.isnan(param.grad)).any() else 'all_nan'}, max={param.grad[~torch.isnan(param.grad)].max() if (~torch.isnan(param.grad)).any() else 'all_nan'}", flush=True)
+                sys.stdout.flush()
+                break  # Only report first NaN gradient to avoid spam
+        
         scaler.unscale_(actor_optimizer)
         
         # Gradient clipping to prevent exploding gradients
@@ -583,10 +593,9 @@ def main():
         mode = None
         update_main = torch.compile(update_main, mode=mode)
         update_pol = torch.compile(update_pol, mode=mode)
-        policy = torch.compile(policy, mode=mode)
-        normalize_obs = torch.compile(normalize_obs, mode=mode)
-        normalize_critic_obs = torch.compile(normalize_critic_obs, mode=mode)
-        normalize_xanchor = torch.compile(normalize_xanchor, mode=mode)
+        policy = torch.compile(policy, dynamic=True, mode=mode)
+        normalize_obs = torch.compile(normalize_obs, mode=None)
+        normalize_critic_obs = torch.compile(normalize_critic_obs, mode=None)
 
     def frames_to_video_html(frames, fps=30):
         """
@@ -640,7 +649,7 @@ def main():
         critic_obs = torch.as_tensor(critic_obs, device=device, dtype=torch.float)
     else:
         obs, xanchor = envs.reset()
-    pbar = tqdm.tqdm(total=args.total_timesteps, initial=global_step)
+    pbar = tqdm.tqdm(total=args.total_timesteps, initial=global_step, mininterval=120.0, maxinterval=120.0, smoothing=0.0) 
     dones = None
 
     while global_step < args.total_timesteps:
@@ -656,8 +665,7 @@ def main():
                 obs, xanchor = obs
 
             norm_obs = normalize_obs(obs)
-            norm_xanchor = normalize_xanchor(xanchor)
-            actions = policy(obs=norm_obs, xanchor=norm_xanchor, dones=dones)
+            actions = policy(obs=norm_obs, xanchor=xanchor, dones=dones)
 
         # ENVIRONMENT INTERACTION PHASE
         # Take actions in the environment and collect transition data
@@ -729,8 +737,8 @@ def main():
                 data["next"]["observations"] = normalize_obs(
                     data["next"]["observations"]
                 )
-                data["xanchors"] = normalize_xanchor(data["xanchors"])
-                data["next"]["xanchors"] = normalize_xanchor(data["next"]["xanchors"])
+                # data["xanchors"] = normalize_xanchor(data["xanchors"])
+                # data["next"]["xanchors"] = normalize_xanchor(data["next"]["xanchors"])
                 if envs.asymmetric_obs:
                     data["critic_observations"] = normalize_critic_obs(
                         data["critic_observations"]
@@ -841,7 +849,6 @@ def main():
                     qnet,
                     qnet_target,
                     obs_normalizer,
-                    xanchor_normalizer,
                     critic_obs_normalizer,
                     args,
                     f"models/{run_name}_{global_step}.pt",
@@ -856,7 +863,6 @@ def main():
         qnet,
         qnet_target,
         obs_normalizer,
-        xanchor_normalizer,
         critic_obs_normalizer,
         args,
         f"models/{run_name}_final.pt",

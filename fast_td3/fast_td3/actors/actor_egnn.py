@@ -2,7 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from fast_td3.actors.gnn.egnn import EGNN
+from fast_td3.actors.gnn.egnn import EGNN, EGNN_V3
+from fast_td3.robots.graph_builder import env_without_object
+
 
 class ActorEGNN(nn.Module):
     def __init__(
@@ -21,6 +23,8 @@ class ActorEGNN(nn.Module):
         coords_agg: str = "mean",
         normalize: bool = False,
         tanh: bool = False,
+        residual: bool = True,
+        coord_norm: bool = False,
     ):
         super().__init__()
         self.n_envs = num_envs
@@ -35,11 +39,22 @@ class ActorEGNN(nn.Module):
             case _:
                 raise ValueError(f"Unknown activation function: {act_fn}")
 
+        if env_name in env_without_object:
+            object_feature_dim = 13
+        elif env_name == "h1-balance_simple-v0" or env_name == "h1-sit_hard-v0":
+            object_feature_dim = 26
+        elif env_name == "h1-reach-v0" or env_name == "h1-push-v0":
+            object_feature_dim = 19
+        elif env_name == "h1-door-v0":
+            object_feature_dim = 17
+        else:
+            raise ValueError(f"Unsupported environment name: {env_name}")
+
         # EGNN for message passing
-        self.egnn = EGNN(
+        self.egnn = EGNN_V3(
             hidden_nf=hidden_dim,
-            in_node_nf=2,
-            in_edge_nf=0,
+            in_joint_nf=2,
+            object_feature_dim=object_feature_dim,
             out_node_nf=1,
             batch_size=batch_size,
             device=device,
@@ -51,7 +66,11 @@ class ActorEGNN(nn.Module):
             normalize=normalize,
             tanh=tanh,
             env_name=env_name,
+            residual=residual,
+            coord_norm=coord_norm,
         )
+        
+        # self.egnn = torch.compile(self.egnn, dynamic=True, mode="max-autotune", fullgraph=True)
 
         # Initialize noise parameters
         noise_scales = (

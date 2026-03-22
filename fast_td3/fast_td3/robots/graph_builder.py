@@ -6,14 +6,27 @@ import torch
 from fast_td3.robots.h1 import H1
 from fast_td3.robots.g1 import G1
 
+env_without_object = [
+    "h1-walk-v0",
+    "h1-reach-v0",
+    "h1-hurdle-v0",
+    "h1-crawl-v0",
+    "h1-maze-v0",
+    "h1-highbar_simple-v0",
+    "h1-stand-v0",
+    "h1-run-v0",
+    "h1-sit_simple-v0",
+    "h1-stairs-v0",
+    "h1-slide-v0",
+    "h1-pole-v0",
+]
+
 
 # TODO: this currently works for h1, need to generalize for other robots
 class GraphBuilder:
     """Utility to build graph tensors and visualize robot topology."""
 
-    def __init__(
-        self, env_name, batch_size, device, robot="h1"
-    ):
+    def __init__(self, env_name, batch_size, device, robot="h1"):
         robot_lower = robot.lower()
         if robot_lower == "h1":
             self.robot = H1()
@@ -45,11 +58,94 @@ class GraphBuilder:
 
         return h, x, h_object, x_object
 
-
-
-    def visualize_graph(
-        self, save_path: str = "robot_graph.png"
+    @torch.jit.script
+    def generate_input_v3(
+        self, obs: torch.Tensor, xanchor: torch.Tensor, env_name: str
     ):
+        if env_name in (
+            "h1-walk-v0",
+            "h1-reach-v0",
+            "h1-hurdle-v0",
+            "h1-crawl-v0",
+            "h1-maze-v0",
+            "h1-highbar_simple-v0",
+            "h1-stand-v0",
+            "h1-run-v0",
+            "h1-sit_simple-v0",
+            "h1-stairs-v0",
+            "h1-slide-v0",
+            "h1-pole-v0",
+        ):
+            joint_pos = obs[:, 7:26].reshape(-1, 1)  # [batch*19, 1]
+            joint_vel = obs[:, 32:51].reshape(-1, 1)  # [batch*19, 1]
+            h = torch.cat([joint_vel, joint_pos], dim=1)
+            x = (xanchor[:, 1:] - xanchor[:, [0]]).reshape(-1, 3)  # [batch*19, 3]
+            idx = torch.cat(
+                [
+                    torch.arange(0, 7),
+                    torch.arange(26, 32),
+                ]
+            )
+            h_object = obs[:, idx]
+            return h, x, h_object
+        elif env_name in ("h1-balance_simple-v0", "h1-sit_hard-v0"):
+            joint_pos = obs[:, 7:26].reshape(-1, 1)  # [batch*19, 1]
+            joint_vel = obs[:, 39:58].reshape(-1, 1)  # [batch*19, 1]
+            h = torch.cat([joint_vel, joint_pos], dim=1)
+            x = (xanchor[:, 1:] - xanchor[:, [0]]).reshape(-1, 3)  # [batch*19, 3]
+            idx = torch.cat(
+                [
+                    torch.arange(0, 7),
+                    torch.arange(26, 39),
+                    torch.arange(58, 64),
+                ]
+            )
+            h_object = obs[:, idx]
+            return h, x, h_object
+        elif env_name == "h1-reach-v0":
+            joint_pos = obs[:, 7:26].reshape(-1, 1)  # [batch*19, 1]
+            joint_vel = obs[:, 32:51].reshape(-1, 1)  # [batch*19, 1]
+            h = torch.cat([joint_vel, joint_pos], dim=1)
+            x = (xanchor[:, 1:] - xanchor[:, [0]]).reshape(-1, 3)  # [batch*19, 3]
+            idx = torch.cat(
+                [
+                    torch.arange(0, 7),
+                    torch.arange(26, 32),
+                    torch.arange(51, 57),
+                ]
+            )
+            h_object = obs[:, idx]
+            return h, x, h_object
+        elif env_name == "h1-push-v0":
+            joint_pos = obs[:, 7:26].reshape(-1, 1)  # [batch*19, 1]
+            joint_vel = obs[:, 32:51].reshape(-1, 1)  # [batch*19, 1]
+            h = torch.cat([joint_vel, joint_pos], dim=1)
+            x = (xanchor[:, 1:] - xanchor[:, [0]]).reshape(-1, 3)  # [batch*19, 3]
+            idx = torch.cat(
+                [
+                    torch.arange(0, 7),
+                    torch.arange(26, 32),
+                    torch.arange(51, 63),
+                ]
+            )
+            h_object = obs[:, idx]
+            return h, x, h_object
+        elif env_name == "h1-door-v0":
+            joint_pos = obs[:, 7:26].reshape(-1, 1)  # [batch*19, 1]
+            joint_vel = obs[:, 34:53].reshape(-1, 1)  # [batch*19, 1]
+            h = torch.cat([joint_vel, joint_pos], dim=1)
+            x = (xanchor[:, 1:] - xanchor[:, [0]]).reshape(-1, 3)  # [batch*19, 3]
+            idx = torch.cat(
+                [
+                    torch.arange(0, 7),
+                    torch.arange(26, 34),
+                    torch.arange(53, 55),
+                ]
+            )
+            h_object = obs[:, idx]
+            return h, x, h_object
+
+    def visualize_graph(self, save_path: str = "robot_graph.png"):
         """Visualize the current graph.
 
         Args:
@@ -134,7 +230,7 @@ if __name__ == "__main__":
     print("Visualizing H1 robot...")
     gb_h1 = GraphBuilder(env_name="h1-run-v0", batch_size=1, device="cpu", robot="h1")
     gb_h1.visualize_graph(save_path="h1_robot_graph.png")
-    
+
     print("Visualizing G1 robot...")
     gb_g1 = GraphBuilder(env_name="g1-run-v0", batch_size=1, device="cpu", robot="g1")
     gb_g1.visualize_graph(save_path="g1_robot_graph.png")

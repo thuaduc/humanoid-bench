@@ -391,6 +391,7 @@ class EmpiricalNormalization(nn.Module):
     def std(self):
         return self._std.squeeze(0).clone()
 
+    @torch.no_grad()
     def forward(self, x: torch.Tensor, center: bool = True) -> torch.Tensor:
         if x.shape[1:] != self._mean.shape[1:]:
             raise ValueError(
@@ -454,7 +455,6 @@ def save_params(
     qnet,
     qnet_target,
     obs_normalizer,
-    xanchor_normalizer,
     critic_obs_normalizer,
     args,
     save_path,
@@ -468,11 +468,6 @@ def save_params(
         "obs_normalizer_state": (
             cpu_state(obs_normalizer.state_dict())
             if hasattr(obs_normalizer, "state_dict")
-            else None
-        ),
-        "xanchor_normalizer_state": (
-            cpu_state(xanchor_normalizer.state_dict())
-            if hasattr(xanchor_normalizer, "state_dict")
             else None
         ),
         "critic_obs_normalizer_state": (
@@ -519,6 +514,10 @@ class SimpleReplayBufferGNN(nn.Module):
         "h1-balance_simple-v0",
         ]: 
             n_xanchor = 21
+        elif env_name in [
+            "h1-door-v0"
+        ]:
+            n_xanchor = 22
         else:
             n_xanchor = 20
 

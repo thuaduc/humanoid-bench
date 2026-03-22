@@ -37,7 +37,7 @@ class BaseArgs:
     """the learning rate of the critic"""
     actor_learning_rate: float = 3e-4
     """the learning rate for the actor"""
-    buffer_size: int = 1024 * 50
+    buffer_size: int = 1024 * 25
     """the replay memory buffer size"""
     num_steps: int = 1
     """the number of steps to use for the multi-step return"""
@@ -45,7 +45,7 @@ class BaseArgs:
     """the discount factor gamma"""
     tau: float = 0.1
     """target smoothing coefficient (default: 0.005)"""
-    batch_size: int = 32768
+    batch_size: int = 16384
     """the batch size of sample from the replay memory"""
     policy_noise: float = 0.001
     """the scale of policy noise"""
@@ -59,7 +59,7 @@ class BaseArgs:
     """the frequency of training policy (delayed)"""
     noise_clip: float = 0.5
     """noise clip parameter of the Target Policy Smoothing Regularization"""
-    num_updates: int = 2
+    num_updates: int = 4
     """the number of updates to perform per step"""
     init_scale: float = 0.01
     """the scale of the initial parameters"""
@@ -85,6 +85,8 @@ class BaseArgs:
     """whether to use torch.compile."""
     obs_normalization: bool = True
     """whether to enable observation normalization"""
+    center_obs: bool = True
+    """whether to center the observations when normalizing"""
     max_grad_norm: float = 0.0
     """the maximum gradient norm"""
     amp: bool = True
@@ -103,7 +105,7 @@ class BaseArgs:
     """(IsaacLab only) the bounds of the action space (-action_bounds, action_bounds)"""
     weight_decay: float = 0.1
     """the weight decay of the optimizer"""
-    save_interval: int = 5000
+    save_interval: int = 20000
     """the interval to save the model"""
 
 
@@ -122,6 +124,15 @@ def get_args():
     # - MuJoCo Playground (https://arxiv.org/abs/2502.08844)
     env_to_args_class = {
         # HumanoidBench
+        # v1 tasks
+        "h1-run-v0": H1RunArgs,
+        "h1-slide-v0": H1SlideArgs,
+        "h1-hurdle-v0": H1HurdleArgs,
+        "h1-door-v0": H1DoorArgs,
+        "h1-balance_simple-v0": H1BalanceSimpleArgs,
+        "h1-push-v0": H1PushArgs,
+        "h1-reach-v0": H1ReachArgs,
+        
         # NOTE: These tasks are not full list of HumanoidBench tasks
         "h1hand-reach-v0": H1HandReachArgs,
         "h1hand-balance-simple-v0": H1HandBalanceSimpleArgs,
@@ -182,6 +193,43 @@ class HumanoidBenchArgs(BaseArgs):
     total_timesteps: int = 100000
     model_kwargs: json = None
 
+
+@dataclass
+class HumanoidBenchV1Args(HumanoidBenchArgs):
+    # Hyperparameters optimized for v1 tasks (custom_env variants with alternative locomotion implementations)
+    max_grad_norm: float = 10
+    
+@dataclass
+class H1PushArgs(HumanoidBenchV1Args):
+    v_min: float = -2000.0
+    v_max: float = 2000.0
+    total_timesteps: int = 250_001
+
+@dataclass
+class H1ReachArgs(HumanoidBenchV1Args):
+    v_min: float = -2000.0
+    v_max: float = 2000.0
+    total_timesteps: int = 350_001
+    
+@dataclass
+class H1RunArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 50_001
+    
+@dataclass
+class H1SlideArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 50_001
+    
+@dataclass
+class H1HurdleArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 150_001
+    
+@dataclass
+class H1DoorArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 500_001
+
+@dataclass
+class H1BalanceSimpleArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 300_001
 
 @dataclass
 class H1HandReachArgs(HumanoidBenchArgs):
