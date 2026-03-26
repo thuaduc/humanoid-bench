@@ -573,7 +573,7 @@ def main():
         mode = None
         update_main = torch.compile(update_main, mode=mode)
         update_pol = torch.compile(update_pol, mode=mode)
-        policy = torch.compile(policy, fullgraph=True)
+        policy = torch.compile(policy, mode=mode)
         normalize_obs = torch.compile(normalize_obs, mode=mode)
         normalize_critic_obs = torch.compile(normalize_critic_obs, mode=mode)
 

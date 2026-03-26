@@ -421,3 +421,9 @@ def unflatten_obs(flat_obs, env_name: str):
 def get_obs_shapes(env_name: str):
     env_class = get_env_class(env_name)
     return env_class.get_obs_shapes()
+
+
+def get_object_feature_dim(env_name: str) -> int:
+    """Get the object feature dimension for a given environment."""
+    env_class = get_env_class(env_name)
+    return env_class.get_object_feature_dim()

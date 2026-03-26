@@ -7,10 +7,15 @@ from humanoid_bench.envs.custom_env import unflatten_obs
 
 class Transformer(nn.Module):
     """
-    Transformer-based actor for EGNN-style observations.
+    Transformer-based actor with skip connections and explicit object conditioning.
     
-    Handles heterogeneous node types (joints and objects) with different feature dimensions
-    by projecting them to a common embedding space before transformer processing.
+    Architecture:
+    1. Project joint (5d) and object (13d) features to 64d
+    2. Add learnable positional embeddings
+    3. Apply 2-layer transformer (64d, 4 heads)
+    4. Add object embedding to each joint (explicit conditioning)
+    5. Concatenate transformer output (64d) with raw joint features (5d) = 69d
+    6. Per-joint action head: 69d -> 64d -> 32d -> 1
     """
 
     def __init__(
@@ -29,17 +34,17 @@ class Transformer(nn.Module):
         dropout=0.1,
     ):
         """
-        :param in_joint_nf: Number of features for joint nodes (velocity + position) = 2
-        :param in_object_nf: Number of features for object nodes = 13
-        :param out_node_nf: Output dimension per node
-        :param hidden_nf: Hidden dimension for embeddings and transformer
+        :param in_joint_nf: Number of features for joint nodes (pos, vel, x, y, z) = 5
+        :param in_object_nf: Number of features for object nodes (pelvis state) = 13
+        :param out_node_nf: Output dimension per node (unused in this architecture)
+        :param hidden_nf: Hidden dimension for embeddings and transformer (64d)
         :param device: Device (e.g. 'cpu', 'cuda:0',...)
         :param batch_size: Batch size for vectorized environments
         :param act_fn: Activation function
-        :param n_layers: Number of transformer layers
+        :param n_layers: Number of transformer layers (2)
         :param robot: Robot name for graph builder
         :param env_name: Environment name
-        :param num_heads: Number of attention heads
+        :param num_heads: Number of attention heads (4)
         :param dropout: Dropout rate
         """
         super().__init__()
@@ -55,29 +60,29 @@ class Transformer(nn.Module):
         self.graph_builder = GraphBuilder(env_name, batch_size, device, robot)
         self.num_joints = self.graph_builder.robot.num_joints
         
-        # Determine number of objects based on environment
-        from fast_td3.actors.gnn.egcl import env_with_object
-        self.num_objects = 2 if env_name in env_with_object else 1
-        
-        # Projection layers for heterogeneous features
-        # Project joint features (2D) to hidden dimension
+        # Joint projection: 5d -> hidden_nf (64d)
         self.joint_projection = nn.Sequential(
             nn.Linear(in_joint_nf, hidden_nf),
             act_fn,
         )
         
-        # Project object features (13D) to hidden dimension
+        # Object projection: 13d -> hidden_nf (64d)
         self.object_projection = nn.Sequential(
             nn.Linear(in_object_nf, hidden_nf),
             act_fn,
         )
         
-        # Transformer encoder
-        # Use divisor of hidden_nf for num_heads to avoid dimension issues
-        actual_heads = min(num_heads, hidden_nf // 8)  # Ensure hidden_nf is divisible by num_heads
+        # Learnable positional embeddings for joints and objects
+        # We'll have (num_joints + 1) positions since we have 1 object token
+        max_positions = self.num_joints + 1
+        self.positional_embeddings = nn.Parameter(
+            torch.randn(max_positions, hidden_nf) * 0.02
+        )
+        
+        # Transformer encoder: 2 layers, 64d, 4 heads
         transformer_layer = nn.TransformerEncoderLayer(
             d_model=hidden_nf,
-            nhead=actual_heads,
+            nhead=num_heads,
             dim_feedforward=hidden_nf * 4,
             dropout=dropout,
             batch_first=True,
@@ -88,15 +93,14 @@ class Transformer(nn.Module):
             num_layers=n_layers,
         )
         
-        # Output MLP: from transformer hidden features to actions
-        # Total nodes = num_joints + num_objects (all with hidden_nf features)
-        total_nodes = self.num_joints + self.num_objects
-        self.output_mlp = nn.Sequential(
-            nn.Linear(total_nodes * hidden_nf, hidden_nf * 4),
+        # Per-joint action head: 69d -> 64d -> 32d -> 1
+        # Input is contextualized features (64d) + raw features (5d) = 69d
+        self.action_head = nn.Sequential(
+            nn.Linear(hidden_nf + in_joint_nf, 64),
             act_fn,
-            nn.Linear(hidden_nf * 4, hidden_nf),
+            nn.Linear(64, 32),
             act_fn,
-            nn.Linear(hidden_nf, self.num_joints),
+            nn.Linear(32, 1),
             nn.Tanh(),
         )
         
@@ -104,51 +108,47 @@ class Transformer(nn.Module):
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         """
-        Process observations through the transformer.
+        Process observations through the transformer with skip connections.
+        
+        Architecture flow:
+        1. Project joint (5d) and object (13d) features to 64d
+        2. Add positional embeddings
+        3. Apply transformer (2 layers, 64d, 4 heads)
+        4. Add object embedding to each joint (explicit conditioning)
+        5. Concatenate contextualized (64d) + raw features (5d)
+        6. Per-joint action head (69d -> 1d)
         
         :param obs: Flattened observation tensor
         :return: Action tensor of shape (batch_size, num_joints)
         """
-        obs = unflatten_obs(obs, self.env_name)
-        current_batch_size = obs["joint_velocities"].shape[0]
-        
-        # Joint features: [velocity, position] for each joint
-        joint_features = torch.cat([
-            obs["joint_x"],
-            obs["joint_velocities"].unsqueeze(-1),
-            obs["joint_positions"].unsqueeze(-1),
-        ], dim=-1).reshape(-1, self.in_joint_nf)  # Shape: (batch_size * num_joints, 5)
-        
-        # Object features: [position, quaternions, velocities] concatenated
-        obj_feats = [
-            obs["object_x"],
-            obs["object_quaternions"],
-            obs["object_velocities"],
-        ]
-        if "object_others" in obs:
-            # Repeat for each object
-            obj_others = obs["object_others"].unsqueeze(1).expand(-1, self.num_objects, -1)
-            obj_feats.append(obj_others)
+        h_joints, h_objects = unflatten_obs(obs, self.env_name)
+        current_batch_size = h_joints.shape[0]
 
-        object_features = torch.cat(obj_feats, dim=-1).reshape(-1, self.in_object_nf)  # Shape: (batch_size * num_objects, 13)
+        # Step 1: Project features to hidden dimension
+        joint_embeddings = self.joint_projection(h_joints)
+        object_embeddings = self.object_projection(h_objects)
         
-        # Joint projection
-        joint_embeddings = self.joint_projection(joint_features)  # (batch_size * num_joints, hidden_nf)
-        joint_embeddings = joint_embeddings.reshape(current_batch_size, self.num_joints, self.hidden_nf)
-        
-        # Object projection
-        object_embeddings = self.object_projection(object_features)  # (batch_size, hidden_nf)
-        object_embeddings = object_embeddings.reshape(current_batch_size, self.num_objects, self.hidden_nf)  # (batch_size, num_objects, hidden_nf)
-        
-        # Concatenate joint and object embeddings to create node sequence
-        # Shape: (batch_size, num_joints + num_objects, hidden_nf)
+        # Step 2: Add positional embeddings
         node_sequence = torch.cat([joint_embeddings, object_embeddings], dim=1)
+        node_sequence = node_sequence + self.positional_embeddings.unsqueeze(0)
         
-        # Apply transformer
-        transformer_output = self.transformer(node_sequence)  # (batch_size, num_joints + num_objects, hidden_nf)
+        # Step 3: Apply transformer
+        transformer_output = self.transformer(node_sequence)
         
-        # Flatten and pass through output MLP
-        flattened_output = transformer_output.reshape(current_batch_size, -1)  # (batch_size, (num_joints + num_objects) * hidden_nf)
-        actions = self.output_mlp(flattened_output)  # (batch_size, num_joints)
+        # Step 4: Split back into joints and objects
+        h_joint_ctx = transformer_output[:, :self.num_joints, :]
+        h_object_ctx = transformer_output[:, self.num_joints:, :]
+        
+        # Step 5: Explicit object conditioning - add object embedding to each joint
+        h_object_broadcasted = h_object_ctx.mean(dim=1, keepdim=True)
+        h_joint_conditioned = h_joint_ctx + h_object_broadcasted
+        
+        # Step 6: Skip connection - concat contextualized (64d) + raw features (5d)
+        h_joint_with_skip = torch.cat([h_joint_conditioned, h_joints], dim=-1)
+        
+        # Step 7: Per-joint action head (69d -> 1d)
+        # Process each joint independently through the same action head
+        actions = self.action_head(h_joint_with_skip)
+        actions = actions.squeeze(-1)
         
         return actions

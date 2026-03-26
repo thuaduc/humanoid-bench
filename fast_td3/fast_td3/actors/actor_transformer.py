@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 
 from fast_td3.actors.transformer.transformer import Transformer
+from humanoid_bench.envs.custom_env import get_object_feature_dim
 
 
 class ActorTransformer(nn.Module):
@@ -32,18 +33,12 @@ class ActorTransformer(nn.Module):
             case _:
                 raise ValueError(f"Unknown activation function: {act_fn}")
 
-        # Determine extra object features based on environment
-        extra_obj_dim = 0
-        if "reach" in env_name:
-            extra_obj_dim = 6
-        elif "push" in env_name:
-            extra_obj_dim = 12
+        in_object_nf = get_object_feature_dim(env_name)
 
-        # Transformer with EGNN-style data handling
         self.transformer = Transformer(
             hidden_nf=hidden_dim,
             in_joint_nf=5,
-            in_object_nf=13 + extra_obj_dim,
+            in_object_nf=in_object_nf,
             out_node_nf=1,
             batch_size=batch_size,
             device=device,
