@@ -125,7 +125,7 @@ def main():
         
         wandb.init(
             entity="thuaduc24042001-technical-university-of-munich",
-            project="Benchmark final",
+            project="Benchmark new",
             name=run_name,
             config=config,
             save_code=True,
@@ -135,12 +135,12 @@ def main():
             ),
         )
         
+        wandb.save("fast_td3/actors/gnn/egcl.py")
         wandb.save("fast_td3/actors/gnn/egnn.py")
         wandb.save("fast_td3/actors/gnn/egnn_v2.py")
         wandb.save("fast_td3/actors/gnn/egnn_v3.py")
         wandb.save("fast_td3/actors/gnn/egnn_v5.py")
-        wandb.save("fast_td3/robots/H1.py")
-        wandb.save("fast_td3/robots/graph_builder.py")
+        wandb.save("fast_td3/actors/transformer/transformer.py")
         wandb.save("fast_td3/train.py")
         
 

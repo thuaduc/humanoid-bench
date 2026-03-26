@@ -1,7 +1,7 @@
 from torch import nn
 import torch
 
-from fast_td3.actors.gnn.egcl import E_GCL, env_with_object
+from fast_td3.actors.gnn.egcl import E_GCL
 from fast_td3.robots.graph_builder import GraphBuilder
 from humanoid_bench.envs.custom_env import unflatten_obs
 
@@ -53,7 +53,6 @@ class EGNN(nn.Module):
         self.out_node_nf = out_node_nf
         self.batch_size = batch_size
         self.env_name = env_name
-        self.has_mixed_node_types = env_name in env_with_object
         self.robot = robot
         self.graph_builder = GraphBuilder(env_name, batch_size, device, robot)
         self.num_joints = self.graph_builder.robot.num_joints

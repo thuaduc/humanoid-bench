@@ -227,9 +227,7 @@ def create_actor(
     """
     from fast_td3.actors import (
         ActorEGNN,
-        ActorEGNN_V2,
         ActorEGNN_V3,
-        ActorEGNN_V4,
         ActorEGNN_V5,
         ActorTransformer,
         Actor,
@@ -243,24 +241,8 @@ def create_actor(
             env_name=env_name,
             **model_kwargs,
         )
-    elif actor_type == "egnn_v2":
-        return ActorEGNN_V2(
-            num_envs=num_envs,
-            batch_size=batch_size,
-            device=device,
-            env_name=env_name,
-            **model_kwargs,
-        )
     elif actor_type == "egnn_v3":
         return ActorEGNN_V3(
-            num_envs=num_envs,
-            batch_size=batch_size,
-            device=device,
-            env_name=env_name,
-            **model_kwargs,
-        )
-    elif actor_type == "egnn_v4":
-        return ActorEGNN_V4(
             num_envs=num_envs,
             batch_size=batch_size,
             device=device,

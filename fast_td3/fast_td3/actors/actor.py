@@ -51,7 +51,7 @@ class Actor(nn.Module):
         self, obs: torch.Tensor, dones: torch.Tensor = None, deterministic: bool = False
     ) -> torch.Tensor:
         # If dones is provided, resample noise for environments that are done
-        if dones is not None and dones.sum() > 0:
+        if dones is not None:
             # Generate new noise scales for done environments (one per environment)
             new_scales = (
                 torch.rand(self.n_envs, 1, device=obs.device)
