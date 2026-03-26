@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
-from fast_td3.actors.gnn.egcl import env_with_object
 from fast_td3.actors.gnn.egnn_v3 import EGNN_V3
 from humanoid_bench.envs.custom_env import get_env_class
 

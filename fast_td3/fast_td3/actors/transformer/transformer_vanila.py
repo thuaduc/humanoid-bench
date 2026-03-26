@@ -1,9 +1,8 @@
-from typing import List, Dict
+from typing import Dict
 
 import torch
-import torch.nn.functional as F
-from torch import Tensor, nn
-from torch_geometric.data import Data, HeteroData
+from torch import nn
+from torch_geometric.data import HeteroData
 from torch_geometric.nn import MLP
 
 

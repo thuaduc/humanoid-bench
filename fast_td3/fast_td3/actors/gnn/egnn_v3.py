@@ -65,7 +65,7 @@ class EGNN_V3(nn.Module):
         
         self._joint_edges_cache = {}
         self._joint_edges_cache[self.batch_size] = self.generate_joint_edges(self.batch_size)
-        self._joint_edges_cache[128] = self.generate_joint_edges(4)
+        self._joint_edges_cache[128] = self.generate_joint_edges(128)
         
         self.joint_out_dim = 2
         

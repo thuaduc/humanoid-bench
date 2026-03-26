@@ -62,21 +62,26 @@ class ObjectEquivariantEncoder(nn.Module):
         embedding_tensor[:, 0, 0] = lin_mag.squeeze(-1)
         embedding_tensor[:, 0, 1] = ang_mag.squeeze(-1)
         
-        # L=1
-        # Mapping (x, y, z) -> (y, z, x) for indices 1, 2, 3
-        # Index 1: m=-1 (y)
-        # Index 2: m=0  (z)
-        # Index 3: m=1  (x)
+        # L=1 components.
+        # We follow the standard SO(3)/e3nn convention where, for l=1, the
+        # spherical harmonic ordering is (m = -1, 0, 1) which corresponds to
+        # Cartesian directions (Y, Z, X), in that order.
+        #
+        # Therefore, given a vector with Cartesian components (x, y, z), we map
+        # it to SH indices 1, 2, 3 as (y, z, x) respectively:
+        #   Index 1: m = -1 -> Y component
+        #   Index 2: m =  0 -> Z component
+        #   Index 3: m =  1 -> X component
         
-        # Linear
-        embedding_tensor[:, 1, 0] = lin_vel_global[:, 1] # y
-        embedding_tensor[:, 2, 0] = lin_vel_global[:, 2] # z
-        embedding_tensor[:, 3, 0] = lin_vel_global[:, 0] # x
+        # Linear (channel 0)
+        embedding_tensor[:, 1, 0] = lin_vel_global[:, 1] # y -> m=-1
+        embedding_tensor[:, 2, 0] = lin_vel_global[:, 2] # z -> m=0
+        embedding_tensor[:, 3, 0] = lin_vel_global[:, 0] # x -> m=1
         
-        # Angular
-        embedding_tensor[:, 1, 1] = ang_vel_global[:, 1] # y
-        embedding_tensor[:, 2, 1] = ang_vel_global[:, 2] # z
-        embedding_tensor[:, 3, 1] = ang_vel_global[:, 0] # x
+        # Angular (channel 1)
+        embedding_tensor[:, 1, 1] = ang_vel_global[:, 1] # y -> m=-1
+        embedding_tensor[:, 2, 1] = ang_vel_global[:, 2] # z -> m=0
+        embedding_tensor[:, 3, 1] = ang_vel_global[:, 0] # x -> m=1
         
         embedding = SO3_Embedding(
             length=batch_size * self.num_objects,

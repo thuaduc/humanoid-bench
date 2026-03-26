@@ -813,11 +813,6 @@ class SimpleReplayBufferGNN(nn.Module):
             actions = torch.gather(self.actions, 1, act_indices).reshape(
                 self.n_env * batch_size, self.n_act
             )
-            env_ids = (
-                torch.arange(self.n_env, device=self.device)
-                .unsqueeze(1)
-                .expand(-1, batch_size)
-            )
             rewards = torch.gather(self.rewards, 1, indices).reshape(
                 self.n_env * batch_size
             )
@@ -872,11 +867,6 @@ class SimpleReplayBufferGNN(nn.Module):
             # Get base transitions
             observations = torch.gather(self.observations, 1, obs_indices).reshape(
                 self.n_env * batch_size, self.n_obs
-            )
-            env_ids = (
-                torch.arange(self.n_env, device=self.device)
-                .unsqueeze(1)
-                .expand(-1, batch_size)
             )
 
             actions = torch.gather(self.actions, 1, act_indices).reshape(

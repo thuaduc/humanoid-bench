@@ -57,8 +57,6 @@ class GraphBuilder:
         assert xanchor.shape[1] == 21, f"xanchor shape: {xanchor.shape}"
         assert obs.shape[1] == 64, f"obs shape: {obs.shape}"
         
-        batch_size = obs.shape[0]
-        
         # --- 1. Process Joints ---
         x_joints = (xanchor[:, 1:20] - xanchor[:, [0]]).reshape(-1, 3)
         h_joints = torch.cat([
@@ -77,7 +75,6 @@ class GraphBuilder:
         
         # Use specialized JIT function: conjugate multiply in one operation
         obj_quat_rel = _quat_conjugate_multiply(obs[:, 3:7], obj_quat)  # [batch, 4]
-        print(obj_quat_rel)
         
         h_obj = torch.cat([
             obj_quat_rel,             # [batch, 4] - relative rotation

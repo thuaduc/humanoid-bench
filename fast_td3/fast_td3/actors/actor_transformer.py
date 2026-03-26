@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 from fast_td3.actors.transformer.transformer import Transformer
 

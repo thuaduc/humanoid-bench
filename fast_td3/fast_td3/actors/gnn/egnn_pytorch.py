@@ -4,10 +4,8 @@ EGNN version from lucidrains: https://github.com/lucidrains/egnn-pytorch/blob/ma
 
 import torch
 from torch import nn, einsum, broadcast_tensors
-import torch.nn.functional as F
 
 from einops import rearrange, repeat
-from einops.layers.torch import Rearrange
 
 # helper functions
 
