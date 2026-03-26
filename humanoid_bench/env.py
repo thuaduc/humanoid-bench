@@ -42,9 +42,18 @@ from .envs.basic_locomotion_envs import (
     Slide,
 )
 from .envs.custom_env import (
-    Stand as StandV2,
-    Walk as WalkV2,
-    Run as RunV2
+    Stand as StandV1,
+    Walk as WalkV1,
+    Run as RunV1,
+    Hurdle as HurdleV1,
+    Crawl as CrawlV1,
+    Sit as SitV1,
+    Stair as StairV1,
+    Slide as SlideV1,
+    BalanceSimple as BalanceSimpleV1,
+    SitHard as SitHardV1,
+    Reach as ReachV1,
+    Push as PushV1,
 )
 from .envs.reach import Reach
 from .envs.pole import Pole
@@ -108,9 +117,19 @@ _TASKS_ORIGINAL = {
 
 # Custom tasks with better naming convention
 TASKS_CUSTOM = {
-    "stand-v1": StandV2,
-    "walk-v1": WalkV2,
-    "run-v1": RunV2,
+    "stand-v1": StandV1,
+    "walk-v1": WalkV1,
+    "run-v1": RunV1,
+    "slide-v1": SlideV1,
+    "crawl-v1": CrawlV1,
+    "sit-v1": SitV1,
+    "hurdle-v1": HurdleV1,
+    "balance_simple-v1": BalanceSimpleV1,
+    "stair-v1": StairV1,
+    "sit_simple-v1": SitV1,
+    "sit_hard-v1": SitHardV1,
+    "reach-v1": ReachV1,
+    "push-v1": PushV1,
 }
 
 # Merged tasks dictionary (used by HumanoidEnv)
@@ -247,6 +266,12 @@ class HumanoidEnv(MujocoEnv, gym.utils.EzPickle):
         )
 
     def step(self, action):
+        # print("world", self.data.xquat[0], self.data.xpos[0])
+        # print("pelvis", self.data.xquat[1], self.data.xpos[1])
+        # print("torso", self.data.xquat[12], self.data.xpos[12])
+        # print("board", self.data.xquat[23], self.data.xpos[23])
+        # print()
+        
         return self.task.step(action)
 
     def reset(self, *, seed=None, options=None):
@@ -283,16 +308,30 @@ class HumanoidEnv(MujocoEnv, gym.utils.EzPickle):
         init_qpos = self.data.qpos.copy()
         init_qvel = self.data.qvel.copy()
         r = self.randomness
+        
         if not (self._random_position or self._random_orientation):
             # Default randomness to all qpos
-            init_qpos += self.np_random.uniform(-r, r, size=self.model.nq)
+            # init_qpos += self.np_random.uniform(-r, r, size=self.model.nq)
+            init_qpos += 0
         else:
             # reset robot to random position
-            if self._random_position:
-                init_qpos[:2] += self.np_random.uniform(-10, 10, size=2)
-            # rotate robot randomly
+            # if self._random_position:
+                # init_qpos[:2] += self.np_random.uniform(-10, 10, size=2)
+                
+            # rotate robot randomly (orientation only, keep position centered)
             if self._random_orientation:
-                init_qpos[3:7] = euler_to_quat(np.array([0.0, 0.0, self.np_random.uniform(-np.pi, np.pi)]))
+                # Rotate quaternions
+                rotation_angle = np.pi / 2
+                init_qpos[3:7] = euler_to_quat(np.array([0.0, 0.0, rotation_angle]))
+                init_qpos[29:33] = euler_to_quat(np.array([0.0, 0.0, rotation_angle]))
+                
+                # Also rotate the xy position around the board center (0,0) to keep feet centered
+                xy_pos = init_qpos[:2].copy()
+                cos_angle = np.cos(rotation_angle)
+                sin_angle = np.sin(rotation_angle)
+                init_qpos[0] = xy_pos[0] * cos_angle - xy_pos[1] * sin_angle
+                init_qpos[1] = xy_pos[0] * sin_angle + xy_pos[1] * cos_angle
+                
         self.set_state(init_qpos, init_qvel)
 
         # Task-specific reset and return observations

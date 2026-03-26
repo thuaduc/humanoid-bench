@@ -1,0 +1,100 @@
+import torch
+import torch.nn as nn
+
+from fast_td3.actors.gnn.egnn_v3 import EGNN_V3
+from humanoid_bench.envs.custom_env import get_env_class
+
+
+class ActorEGNN_V3(nn.Module):
+    def __init__(
+        self,
+        num_envs: int,
+        hidden_dim: int,
+        batch_size: int,
+        device: torch.device,
+        n_layers: int,
+        act_fn: str,
+        env_name: str,
+        robot: str = "h1",
+        std_min: float = 0.05,
+        std_max: float = 0.8,
+        attention: bool = False,
+        coords_agg: str = "mean",
+        normalize: bool = False,
+        tanh: bool = False,
+        residual: bool = True,
+        coord_norm: bool = False,
+    ):
+        super().__init__()
+        match act_fn:
+            case "leaky_relu":
+                act_fn = nn.LeakyReLU()
+            case "silu":
+                act_fn = nn.SiLU()
+            case "relu":
+                act_fn = nn.ReLU()
+            case _:
+                raise ValueError(f"Unknown activation function: {act_fn}")
+
+
+        env_class = get_env_class(env_name)
+        object_feature_dim = env_class.get_object_feature_dim()
+
+        # EGNN v3 with simplified cross-graph message passing
+        self.egnn = EGNN_V3(
+            hidden_nf=hidden_dim,
+            in_joint_nf=2,
+            object_feature_dim=object_feature_dim,
+            out_node_nf=1,
+            batch_size=batch_size,
+            device=device,
+            act_fn=act_fn,
+            n_layers=n_layers,
+            robot=robot,
+            attention=attention,
+            coords_agg=coords_agg,
+            normalize=normalize,
+            tanh=tanh,
+            env_name=env_name,
+            residual=residual,
+            coord_norm=coord_norm,
+        )
+
+        # Initialize noise parameters
+        noise_scales = (
+            torch.rand(num_envs, 1, device=device) * (std_max - std_min) + std_min
+        )
+        self.register_buffer("noise_scales", noise_scales)     
+        self.register_buffer("std_min", torch.as_tensor(std_min, device=device))
+        self.register_buffer("std_max", torch.as_tensor(std_max, device=device))
+        self.n_envs = num_envs
+
+    def forward(self, obs: torch.Tensor) -> torch.Tensor:
+        result = self.egnn(obs)
+
+        return result
+
+    def explore(
+        self, obs: torch.Tensor, dones: torch.Tensor = None, deterministic: bool = False
+    ) -> torch.Tensor:
+        # If dones is provided, resample noise for environments that are done
+        if dones is not None:
+            # Generate new noise scales for done environments (one per environment)
+            new_scales = (
+                torch.rand(self.n_envs, 1, device=obs.device)
+                * (self.std_max - self.std_min)
+                + self.std_min
+            )
+
+            # Update only the noise scales for environments that are done
+            dones_view = dones.view(-1, 1) > 0
+            self.noise_scales.copy_(
+                torch.where(dones_view, new_scales, self.noise_scales)
+            )
+
+        act = self(obs)
+        if deterministic:
+            return act
+
+        noise = torch.randn_like(act) * self.noise_scales
+        return act + noise

@@ -1,7 +1,9 @@
 {
-    "hidden_dim": 64,
-    "n_layers": 4,
+    "hidden_dim": 90,
+    "n_layers": 1,
     "act_fn": "relu",
     "coords_agg": "mean",
-    "tanh": true
+    "residual": true,
+    "tanh": true,
+    "coord_norm": false
 }

@@ -56,11 +56,21 @@ class H1(Robot):
             (self.JOINT.right_hip_roll, self.JOINT.right_knee),
             (self.JOINT.right_hip_pitch, self.JOINT.right_knee),
             (self.JOINT.right_knee, self.JOINT.right_ankle),
+            # Leg cross connections
+            (self.JOINT.left_hip_yaw, self.JOINT.right_hip_yaw),
+            (self.JOINT.left_hip_roll, self.JOINT.right_hip_roll),
+            (self.JOINT.left_hip_pitch, self.JOINT.right_hip_pitch),
+            (self.JOINT.left_knee, self.JOINT.right_knee),
+            (self.JOINT.left_ankle, self.JOINT.right_ankle),
+            # Arm cross connections
+            (self.JOINT.left_shoulder_pitch, self.JOINT.right_shoulder_pitch),
+            (self.JOINT.left_shoulder_roll, self.JOINT.right_shoulder_roll),
+            (self.JOINT.left_shoulder_yaw, self.JOINT.right_shoulder_yaw),
+            (self.JOINT.left_elbow, self.JOINT.right_elbow),
             # Left arm chain and internal connections
             (self.JOINT.left_shoulder_pitch, self.JOINT.left_shoulder_roll),
             (self.JOINT.left_shoulder_pitch, self.JOINT.left_shoulder_yaw),
             (self.JOINT.left_shoulder_roll, self.JOINT.left_shoulder_yaw),
-            (self.JOINT.left_shoulder_roll, self.JOINT.left_elbow),
             (self.JOINT.left_shoulder_pitch, self.JOINT.left_elbow),
             (self.JOINT.left_shoulder_roll, self.JOINT.left_elbow),
             (self.JOINT.left_shoulder_yaw, self.JOINT.left_elbow),

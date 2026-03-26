@@ -6,7 +6,6 @@ import torch
 from fast_td3.robots.h1 import H1
 from fast_td3.robots.g1 import G1
 
-
 # TODO: this currently works for h1, need to generalize for other robots
 class GraphBuilder:
     """Utility to build graph tensors and visualize robot topology."""
@@ -26,8 +25,13 @@ class GraphBuilder:
         self.env_name = env_name
         self.batch_size = batch_size
         self.num_edges = self.robot.joint_connections.__len__()
+        
+        # Pre-allocated identity quaternion [w, x, y, z] = [1, 0, 0, 0]
+        # Using expand() for batch handling to avoid CUDA graph breaking
+        self._identity_quat = torch.tensor(
+            [[1.0, 0.0, 0.0, 0.0]], device=device, dtype=torch.float32
+        )
 
-    @torch.compile(dynamic=True)
     def generate_input(self, obs: torch.tensor, xanchor: torch.tensor):
         """Generate input with root information as global context."""
         assert obs.shape[1] == 51, f"obs shape: {obs.shape}"
@@ -41,11 +45,49 @@ class GraphBuilder:
 
         # Extract root/object features
         h_object = obs[:, 26:32]
-        x_object = xanchor[:, [0]].reshape(-1, 3)  # [batch, 3]yY
+        x_object = (xanchor[:, [0]] - xanchor[:, [0]]).reshape(-1, 3)  # [batch, 3]
 
         return h, x, h_object, x_object
 
+    def generate_input_object(self, obs: torch.tensor, xanchor: torch.tensor):
+        """
+        Generates graph inputs for Joints (Equivariant) and Root+Objects (Invariant).
+        Optimized: uses specialized JIT quaternion ops, pre-allocated identity quaternion.
+        """
+        assert xanchor.shape[1] == 21, f"xanchor shape: {xanchor.shape}"
+        assert obs.shape[1] == 64, f"obs shape: {obs.shape}"
+        
+        # --- 1. Process Joints ---
+        x_joints = (xanchor[:, 1:20] - xanchor[:, [0]]).reshape(-1, 3)
+        h_joints = torch.cat([
+            obs[:, 7:26].reshape(-1, 1),   # Joint Pos [batch, 19]
+            obs[:, 39:58].reshape(-1, 1),  # Joint Vel [batch, 19]
+        ], dim=1)
 
+        # --- 2. Process free base ---
+        h_root = torch.cat([
+            obs[:, 3:7],              # [batch, 4] - root quaternion
+            obs[:, 33:39],          # [batch, 6] - root velocities
+        ], dim=1)
+
+        # --- 3. Process object ---
+        obj_quat = obs[:, 29:33]    # [batch, 4]
+        
+        # Use specialized JIT function: conjugate multiply in one operation
+        obj_quat_rel = _quat_conjugate_multiply(obs[:, 3:7], obj_quat)  # [batch, 4]
+        
+        h_obj = torch.cat([
+            obj_quat_rel,             # [batch, 4] - relative rotation
+            obs[:, 58:64]           # [batch, 6] - object velocities
+        ], dim=1)
+
+        # --- 4. Combine Root and Object ---
+        # h_objects: [batch, 2, 10] -> [batch*2, 10]
+        # Each entity has 10 dims: 4 (quat) + 6 (velocity)
+        h_objects = torch.stack([h_root, h_obj], dim=1).reshape(-1, 10)
+        x_objects = (xanchor[:, [0, 20]] - xanchor[:, [0]]).reshape(-1, 3)
+
+        return h_joints, x_joints, h_objects, x_objects
 
     def visualize_graph(
         self, save_path: str = "robot_graph.png"

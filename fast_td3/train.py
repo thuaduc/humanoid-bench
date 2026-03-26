@@ -10,6 +10,8 @@ if sys.platform != "darwin":
     os.environ["MUJOCO_GL"] = "egl"
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["JAX_DEFAULT_MATMUL_PRECISION"] = "highest"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["MKL_THREADING_LAYER"] = "GNU"
 import random
 import tqdm
 import wandb
@@ -22,18 +24,17 @@ import torch.optim as optim
 from torch.amp import autocast, GradScaler
 from tensordict import TensorDict, from_module
 
-torch.autograd.set_detect_anomaly(True)
 torch.set_float32_matmul_precision("high")
 from fast_td3.fast_td3_utils import (
     EmpiricalNormalization,
     SimpleReplayBufferGNN,
-    StructuredEmpiricalNormalization,
+    SelectiveEmpiricalNormalization,
     save_params,
 )
 from fast_td3 import Critic
 
 from fast_td3.train_utils import create_actor, collect_gradient_stats
-from fast_td3.hyperparams import HumanoidBenchArgs
+from fast_td3.hyperparams import get_args
 import argparse
 from fast_td3.environments.humanoid_bench_env import HumanoidBenchEnv
 from IPython.display import display, HTML
@@ -50,15 +51,9 @@ def main():
         type=str,
         default="egnn",
         help="The kind of actor to use.",
-        choices=["egnn", "mlp"],
+        choices=["egnn", "egnn_v2", "egnn_v3", "egnn_v4", "egnn_v5", "mlp", "transformer"],
     )
     parser.add_argument("--env_name", type=str, default="h1-stand-v0")
-    parser.add_argument(
-        "--total_timesteps",
-        type=int,
-        default=50000,
-        help="Total number of timesteps to train for.",
-    )
     parser.add_argument(
         "--render_interval",
         type=int,
@@ -74,11 +69,11 @@ def main():
     parser.add_argument(
         "--num_envs",
         type=int,
-        default=16,
+        default=128,
         help="Number of parallel environments to use.",
     )
     parser.add_argument(
-        "--batch_size", type=int, default=8192, help="Batch size for training."
+        "--batch_size", type=int, default=32768, help="Batch size for training."
     )
     parser.add_argument("--wandb", action="store_true", help="Enable wandb logging")
     parser.add_argument(
@@ -99,24 +94,31 @@ def main():
         default="",
         help="Description of the task/experiment to log to wandb.",
     )
+    parser.add_argument(
+        "--normalization_type",
+        type=str,
+        default="selective_empirical",
+        choices=["empirical", "selective_empirical"],
+        help="Type of normalization to use for observations.",
+    )
 
-    terminal_args = vars(parser.parse_args())
+    terminal_args, remaining_args = parser.parse_known_args()
+    terminal_args = vars(terminal_args)
 
     if terminal_args["model_kwargs"] is not None:
         with open(terminal_args["model_kwargs"], "r") as f:
             model_kwargs = json.load(f)
     else:
         model_kwargs = {}
-
-    args = HumanoidBenchArgs(
-        env_name=terminal_args["env_name"],
-        total_timesteps=terminal_args["total_timesteps"],
-        render_interval=terminal_args["render_interval"],
-        eval_interval=terminal_args["eval_interval"],
-        num_envs=terminal_args["num_envs"],
-        batch_size=terminal_args["batch_size"],
-        model_kwargs=model_kwargs,
-    )
+    
+    # Pass remaining args to tyro via sys.argv, including --env_name so tyro can select the right Args class
+    import sys
+    sys.argv = [sys.argv[0], "--env_name", terminal_args["env_name"]] + remaining_args
+        
+    args = get_args()
+    args.render_interval = terminal_args["render_interval"]
+    args.eval_interval = terminal_args["eval_interval"]
+    args.model_kwargs = model_kwargs
 
     print(f"Training with args: {terminal_args}")
 
@@ -131,7 +133,7 @@ def main():
         
         wandb.init(
             entity="thuaduc24042001-technical-university-of-munich",
-            project="FastTD3 - new",
+            project="Benchmark final",
             name=run_name,
             config=config,
             save_code=True,
@@ -141,11 +143,14 @@ def main():
             ),
         )
         
-        wandb.save("fast_td3/fast_td3/actors/gnn/egnn.py")
-        wandb.save("fast_td3/fast_td3/robots/H1.py")
-        wandb.save("fast_td3/fast_td3/robots/graph_builder.py")
-
-
+        wandb.save("fast_td3/actors/gnn/egnn.py")
+        wandb.save("fast_td3/actors/gnn/egnn_v2.py")
+        wandb.save("fast_td3/actors/gnn/egnn_v3.py")
+        wandb.save("fast_td3/actors/gnn/egnn_v5.py")
+        wandb.save("fast_td3/robots/H1.py")
+        wandb.save("fast_td3/robots/graph_builder.py")
+        wandb.save("fast_td3/train.py")
+        
 
     amp_enabled = args.amp and args.cuda and torch.cuda.is_available()
     amp_device_type = (
@@ -193,25 +198,21 @@ def main():
     action_low, action_high = -1.0, 1.0
 
     if args.obs_normalization:
+        normalization_type = terminal_args["normalization_type"]
+        
         if "v1" in terminal_args["env_name"]:
-            print("Use structured normalization")
-            obs_shapes = {
-                "pelvis_position": (3,),
-                "pelvis_quaternion": (4,),
-                "pelvis_linear_velocity": (3,),
-                "pelvis_angular_velocity": (3,),
-                "joint_positions": (19,),
-                "joint_velocities": (19,),
-                "joint_x": (19, 3),
-            }
-            obs_normalizer = StructuredEmpiricalNormalization(obs_shapes=obs_shapes, device=device)
-            critic_obs_normalizer = StructuredEmpiricalNormalization(
-                obs_shapes=obs_shapes, device=device
-            )
+            if normalization_type == "empirical":
+                obs_normalizer = EmpiricalNormalization(shape=n_obs, device=device, center=args.center_obs)
+                critic_obs_normalizer = EmpiricalNormalization(shape=n_critic_obs, device=device, center=args.center_obs)
+            elif normalization_type == "selective_empirical":
+                obs_normalizer = SelectiveEmpiricalNormalization(env_name=terminal_args["env_name"], device=device, center=args.center_obs)
+                critic_obs_normalizer = SelectiveEmpiricalNormalization(env_name=terminal_args["env_name"], device=device, center=args.center_obs)
+            else:
+                raise ValueError(f"Unknown normalization type: {normalization_type}")
         else:
-            obs_normalizer = EmpiricalNormalization(shape=n_obs, device=device)
+            obs_normalizer = EmpiricalNormalization(shape=n_obs, device=device, center=args.center_obs)
             critic_obs_normalizer = EmpiricalNormalization(
-                shape=n_critic_obs, device=device
+                shape=n_critic_obs, device=device, center=args.center_obs
             )
     else:
         obs_normalizer = nn.Identity()
@@ -577,8 +578,14 @@ def main():
         scaler.step(actor_optimizer)
         scaler.update()
 
+        # Compute ||theta|| (L2 norm of all parameters)
+        actor_param_norm = torch.sqrt(
+            sum(p.data.norm()**2 for p in actor.parameters())
+        )
+
         # Log training metrics
         logs_dict["actor_grad_norm"] = actor_grad_norm.detach()
+        logs_dict["actor_param_norm"] = actor_param_norm.detach()
         logs_dict["actor_loss"] = actor_loss.detach()
         return logs_dict
 
@@ -586,7 +593,7 @@ def main():
         mode = None
         update_main = torch.compile(update_main, mode=mode)
         update_pol = torch.compile(update_pol, mode=mode)
-        policy = torch.compile(policy, mode=mode)
+        policy = torch.compile(policy, fullgraph=True)
         normalize_obs = torch.compile(normalize_obs, mode=mode)
         normalize_critic_obs = torch.compile(normalize_critic_obs, mode=mode)
 
@@ -768,6 +775,7 @@ def main():
                         "qf_max": logs_dict["qf_max"].mean(),
                         "qf_min": logs_dict["qf_min"].mean(),
                         "actor_grad_norm": logs_dict["actor_grad_norm"].mean(),
+                        "actor_param_norm": logs_dict["actor_param_norm"].mean(),
                         "critic_grad_norm": logs_dict["critic_grad_norm"].mean(),
                         "buffer_rewards": logs_dict["buffer_rewards"].mean(),
                         "env_rewards": rewards.mean(),
