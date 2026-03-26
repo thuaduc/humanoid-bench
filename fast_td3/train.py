@@ -28,7 +28,6 @@ torch.set_float32_matmul_precision("high")
 from fast_td3.fast_td3_utils import (
     EmpiricalNormalization,
     SimpleReplayBufferGNN,
-    SelectiveEmpiricalNormalization,
     save_params,
 )
 from fast_td3 import Critic
@@ -93,13 +92,6 @@ def main():
         type=str,
         default="",
         help="Description of the task/experiment to log to wandb.",
-    )
-    parser.add_argument(
-        "--normalization_type",
-        type=str,
-        default="selective_empirical",
-        choices=["empirical", "selective_empirical"],
-        help="Type of normalization to use for observations.",
     )
 
     terminal_args, remaining_args = parser.parse_known_args()
@@ -197,23 +189,11 @@ def main():
         n_critic_obs = n_obs
     action_low, action_high = -1.0, 1.0
 
-    if args.obs_normalization:
-        normalization_type = terminal_args["normalization_type"]
-        
-        if "v1" in terminal_args["env_name"]:
-            if normalization_type == "empirical":
-                obs_normalizer = EmpiricalNormalization(shape=n_obs, device=device, center=args.center_obs)
-                critic_obs_normalizer = EmpiricalNormalization(shape=n_critic_obs, device=device, center=args.center_obs)
-            elif normalization_type == "selective_empirical":
-                obs_normalizer = SelectiveEmpiricalNormalization(env_name=terminal_args["env_name"], device=device, center=args.center_obs)
-                critic_obs_normalizer = SelectiveEmpiricalNormalization(env_name=terminal_args["env_name"], device=device, center=args.center_obs)
-            else:
-                raise ValueError(f"Unknown normalization type: {normalization_type}")
-        else:
-            obs_normalizer = EmpiricalNormalization(shape=n_obs, device=device, center=args.center_obs)
-            critic_obs_normalizer = EmpiricalNormalization(
-                shape=n_critic_obs, device=device, center=args.center_obs
-            )
+    if args.obs_normalization:    
+        obs_normalizer = EmpiricalNormalization(shape=n_obs, device=device, center=args.center_obs)
+        critic_obs_normalizer = EmpiricalNormalization(
+            shape=n_critic_obs, device=device, center=args.center_obs
+        )
     else:
         obs_normalizer = nn.Identity()
         critic_obs_normalizer = nn.Identity()

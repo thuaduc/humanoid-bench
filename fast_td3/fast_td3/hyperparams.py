@@ -91,7 +91,7 @@ class BaseArgs:
     """the maximum gradient norm"""
     amp: bool = True
     """whether to use amp"""
-    amp_dtype: str = "bf16"
+    amp_dtype: str = "f16"
     """the dtype of the amp"""
     disable_bootstrap: bool = False
     """Whether to disable bootstrap in the critic learning"""
