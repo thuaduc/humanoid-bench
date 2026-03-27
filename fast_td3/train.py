@@ -50,9 +50,9 @@ def main():
         type=str,
         default="egnn",
         help="The kind of actor to use.",
-        choices=["egnn", "egnn_v2", "egnn_v3", "egnn_v4", "egnn_v5", "mlp", "transformer"],
+        choices=["mlp", "egnn", "egnn_v3", "egnn_v5", "transformer", "transformer_v2"],
     )
-    parser.add_argument("--env_name", type=str, default="h1-stand-v0")
+    parser.add_argument("--env_name", type=str, default="h1-stand-v1")
     parser.add_argument(
         "--render_interval",
         type=int,
@@ -141,6 +141,7 @@ def main():
         wandb.save("fast_td3/actors/gnn/egnn_v3.py")
         wandb.save("fast_td3/actors/gnn/egnn_v5.py")
         wandb.save("fast_td3/actors/transformer/transformer.py")
+        wandb.save("fast_td3/actors/transformer/transformer_v2.py")
         wandb.save("fast_td3/train.py")
         
 

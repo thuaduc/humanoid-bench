@@ -5,16 +5,20 @@ from fast_td3.robots.graph_builder import GraphBuilder
 from humanoid_bench.envs.custom_env import unflatten_obs
 
 
-class Transformer(nn.Module):
+class TransformerV2(nn.Module):
     """
-    Transformer-based actor with joint and object tokens processed together.
+    Transformer-based actor with hierarchical attention: joints-only encoder + cross-attention.
     
     Architecture:
     1. Project joint (5d) and object (13d) features to hidden_nf
-    2. Add learnable positional embeddings
-    3. Apply n-layer transformer where joints and objects attend to each other
-    4. Extract joint tokens and generate actions
-    5. Per-joint action head: hidden_nf -> hidden_nf*4 -> hidden_nf -> 1
+    2. Add type embeddings (joint vs object tokens) + positional embeddings to joints only
+    3. Apply n-layer self-attention transformer to joints only
+    4. Cross-attention: joints query object node for global context
+    5. Per-joint action head
+    
+    Key improvement: Joints first attend to each other, then explicitly query the object
+    node for global context through cross-attention. This creates a clearer hierarchy where
+    object information is integrated as context rather than being mixed equally in self-attention.
     """
 
     def __init__(
@@ -56,6 +60,9 @@ class Transformer(nn.Module):
         self.in_object_nf = in_object_nf
         self.num_heads = num_heads
         
+        self.graph_builder = GraphBuilder(env_name, batch_size, device, robot)
+        self.num_joints = self.graph_builder.robot.num_joints
+        
         # Joint projection: 5d -> hidden_nf (64d)
         self.joint_projection = nn.Sequential(
             nn.Linear(in_joint_nf, hidden_nf),
@@ -68,15 +75,17 @@ class Transformer(nn.Module):
             act_fn,
         )
         
-        # Learnable positional embeddings for joints and objects
-        # We'll have (num_joints + 1) positions since we have 1 object token
-        self.num_joints = 69 if "h1hand" in env_name else 19
-        max_positions = self.num_joints + 1
+        # Learnable positional embeddings for joints only
         self.positional_embeddings = nn.Parameter(
-            torch.randn(max_positions, hidden_nf) * 0.02
+            torch.randn(self.num_joints, hidden_nf) * 0.02
         )
         
-        # Transformer encoder: 2 layers, 64d, 4 heads
+        # Type embedding to mark joint tokens
+        self.joint_type_embedding = nn.Parameter(
+            torch.randn(1, 1, hidden_nf) * 0.02
+        )
+        
+        # Transformer encoder for joints only: 2 layers, 64d, 4 heads
         transformer_layer = nn.TransformerEncoderLayer(
             d_model=hidden_nf,
             nhead=num_heads,
@@ -90,7 +99,16 @@ class Transformer(nn.Module):
             num_layers=n_layers,
         )
         
-        # Per-joint action head: hidden_nf -> hidden_nf*4 -> hidden_nf -> 1
+        # Cross-attention: joints query, object provides context
+        self.joint_to_object_cross_attn = nn.MultiheadAttention(
+            embed_dim=hidden_nf,
+            num_heads=num_heads,
+            dropout=dropout,
+            batch_first=True,
+        )
+        self.cross_attn_norm = nn.LayerNorm(hidden_nf)
+        
+        # Per-joint action head: 64d -> 256d -> 64d -> 1
         self.action_head = nn.Sequential(
             nn.Linear(hidden_nf, hidden_nf * 4),
             act_fn,
@@ -104,13 +122,14 @@ class Transformer(nn.Module):
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         """
-        Process observations through the transformer.
+        Process observations through joints-only transformer + cross-attention.
         
-        Architecture flow:
-        1. Project joint (5d) and object (13d) features to hidden_nf
-        2. Concatenate and add positional embeddings
-        3. Apply transformer where all tokens (joints + object) attend to each other
-        4. Extract joint tokens and generate actions
+        Architecture:
+        1. Project features
+        2. Add type and positional embeddings to joints only
+        3. Apply self-attention transformer to joints only (no object in self-attention)
+        4. Cross-attention: joints query object for global context
+        5. Generate actions from contextualized joint features
         """
         h_joints, h_objects = unflatten_obs(obs, self.env_name)
 
@@ -118,15 +137,22 @@ class Transformer(nn.Module):
         joint_embeddings = self.joint_projection(h_joints)
         object_embeddings = self.object_projection(h_objects)
         
-        # Step 2: Concatenate and add positional embeddings
-        node_sequence = torch.cat([joint_embeddings, object_embeddings], dim=1)
-        node_sequence = node_sequence + self.positional_embeddings.unsqueeze(0)
+        # Step 2: Add type and positional embeddings to joints only
+        joint_embeddings = joint_embeddings + self.joint_type_embedding
+        joint_embeddings = joint_embeddings + self.positional_embeddings.unsqueeze(0)
         
-        # Step 3: Apply transformer (joints and object attend to each other)
-        transformer_output = self.transformer(node_sequence)
+        # Step 3: Apply self-attention transformer to joints only
+        joint_output = self.transformer(joint_embeddings)
         
-        # Step 4: Extract joint tokens and generate actions
-        joint_output = transformer_output[:, :self.num_joints, :]
+        # Step 4: Cross-attention - joints query object for global context
+        joint_contextualized, _ = self.joint_to_object_cross_attn(
+            query=joint_output,
+            key=object_embeddings,
+            value=object_embeddings,
+        )
+        joint_output = self.cross_attn_norm(joint_output + joint_contextualized)
+        
+        # Step 5: Generate actions from contextualized joint features
         actions = self.action_head(joint_output)
         actions = actions.squeeze(-1)
         
