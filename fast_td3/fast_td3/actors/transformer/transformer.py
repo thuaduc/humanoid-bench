@@ -1,20 +1,16 @@
 import torch
 import torch.nn as nn
 
-from fast_td3.robots.graph_builder import GraphBuilder
-from humanoid_bench.envs.custom_env import unflatten_obs
-
 
 class Transformer(nn.Module):
     """
-    Transformer-based actor with joint and object tokens processed together.
-    
-    Architecture:
-    1. Project joint (5d) and object (13d) features to hidden_nf
-    2. Add learnable positional embeddings
-    3. Apply n-layer transformer where joints and objects attend to each other
-    4. Extract joint tokens and generate actions
-    5. Per-joint action head: hidden_nf -> hidden_nf*4 -> hidden_nf -> 1
+    Transformer actor: flat observations are split by env-specific unflatten_obs into
+    - h_objects: (B, 1, D_obj) — task-global context (pelvis, props, goals; D_obj varies by env)
+    - h_joints: (B, 19, 5) — per joint [qpos, qvel, anchor_x, anchor_y, anchor_z] (anchors
+      relative to pelvis, scaled like other custom envs)
+
+    Forward: project both streams, concatenate as [joint_tokens, object_token], run
+    TransformerEncoder, then read the first num_joints outputs for actions.
     """
 
     def __init__(
@@ -33,8 +29,8 @@ class Transformer(nn.Module):
         dropout=0.1,
     ):
         """
-        :param in_joint_nf: Number of features for joint nodes (pos, vel, x, y, z) = 5
-        :param in_object_nf: Number of features for object nodes (pelvis state) = 13
+        :param in_joint_nf: Features per joint node (pos, vel, anchor xyz) = 5
+        :param in_object_nf: Flat prefix length for the single object/global token (env-specific)
         :param out_node_nf: Output dimension per node (unused in this architecture)
         :param hidden_nf: Hidden dimension for embeddings and transformer (64d)
         :param device: Device (e.g. 'cpu', 'cuda:0',...)
@@ -62,7 +58,6 @@ class Transformer(nn.Module):
             act_fn,
         )
         
-        # Object projection: 13d -> hidden_nf (64d)
         self.object_projection = nn.Sequential(
             nn.Linear(in_object_nf, hidden_nf),
             act_fn,
@@ -103,30 +98,21 @@ class Transformer(nn.Module):
         self.to(device)
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        """
-        Process observations through the transformer.
-        
-        Architecture flow:
-        1. Project joint (5d) and object (13d) features to hidden_nf
-        2. Concatenate and add positional embeddings
-        3. Apply transformer where all tokens (joints + object) attend to each other
-        4. Extract joint tokens and generate actions
-        """
-        h_joints, h_objects = unflatten_obs(obs, self.env_name)
+        batch_size = obs.shape[0]
+        h_objects = obs[:, :self.in_object_nf].unsqueeze(1)
+        h_joints = obs[:, self.in_object_nf:].view(batch_size, self.num_joints, self.in_joint_nf)
 
-        # Step 1: Project features to hidden dimension
         joint_embeddings = self.joint_projection(h_joints)
         object_embeddings = self.object_projection(h_objects)
-        
-        # Step 2: Concatenate and add positional embeddings
+
+        # Sequence layout matches positional_embeddings: joints 0..N-1, global token last
         node_sequence = torch.cat([joint_embeddings, object_embeddings], dim=1)
         node_sequence = node_sequence + self.positional_embeddings.unsqueeze(0)
-        
-        # Step 3: Apply transformer (joints and object attend to each other)
+
         transformer_output = self.transformer(node_sequence)
-        
-        # Step 4: Extract joint tokens and generate actions
-        joint_output = transformer_output[:, :self.num_joints, :]
+        transformer_output = transformer_output + self.positional_embeddings.unsqueeze(0)
+
+        joint_output = transformer_output[:, : self.num_joints, :]
         actions = self.action_head(joint_output)
         actions = actions.squeeze(-1)
         

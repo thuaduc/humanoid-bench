@@ -1,6 +1,6 @@
 from gymnasium.envs import register
 
-from .env import ROBOTS, TASKS_CUSTOM
+from .env import ROBOTS, TASKS_CUSTOM, TASKS_CUSTOM_H1HAND
 from .env import _TASKS_ORIGINAL
 
 for robot in ROBOTS:
@@ -27,6 +27,11 @@ for robot in ROBOTS:
         control = "torque"
     else:
         control = "pos"
+    
+    # Skip h1hand for TASKS_CUSTOM as it has its own task dict
+    if robot == "h1hand":
+        continue
+        
     for task, task_info in TASKS_CUSTOM.items():
         task_info = task_info()
         kwargs = task_info.kwargs.copy()
@@ -39,3 +44,17 @@ for robot in ROBOTS:
             max_episode_steps=task_info.max_episode_steps,
             kwargs=kwargs,
         )
+
+# Register h1hand custom tasks separately with their own task names
+for task, task_info in TASKS_CUSTOM_H1HAND.items():
+    task_info = task_info()
+    kwargs = task_info.kwargs.copy()
+    kwargs["robot"] = "h1hand"
+    kwargs["control"] = "pos"
+    kwargs["task"] = task
+    register(
+        id=task,
+        entry_point="humanoid_bench.env:HumanoidEnv",
+        max_episode_steps=task_info.max_episode_steps,
+        kwargs=kwargs,
+    )

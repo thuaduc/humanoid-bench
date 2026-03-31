@@ -1,10 +1,27 @@
 import unittest
 import numpy as np
 import torch
+from humanoid_bench.envs import custom_env, custom_env_h1hand
 from humanoid_bench.envs.custom_env import Stand, BalanceSimple, SitHard, unflatten_obs, get_obs_shapes
 
 
 class TestCustomEnv(unittest.TestCase):
+
+    def test_get_object_feature_dim_matches_shapes(self):
+        for module in (custom_env, custom_env_h1hand):
+            for env_name, cls in module.ENV_CLASS_MAP.items():
+                shapes = cls.get_obs_shapes()
+                d_obj = shapes["object_features"][0]
+                self.assertEqual(
+                    cls.get_object_feature_dim(),
+                    d_obj,
+                    msg=f"{env_name}: get_object_feature_dim vs get_obs_shapes",
+                )
+                self.assertEqual(
+                    module.get_object_feature_dim(env_name),
+                    d_obj,
+                    msg=f"{env_name}: module.get_object_feature_dim",
+                )
 
     def test_stand_get_obs_shapes(self):
         shapes = Stand.get_obs_shapes()

@@ -129,13 +129,29 @@ def get_args():
         "h1-slide-v1": H1SlideArgs,
         "h1-hurdle-v1": H1HurdleArgs,
         "h1-door-v1": H1DoorArgs,
-        "h1-balance-simple-v1": H1BalanceSimpleArgs,
+        "h1-balance_simple-v1": H1BalanceSimpleArgs,
         "h1-push-v1": H1PushArgs,
         "h1-reach-v1": H1ReachArgs,
         
-        # NOTE: These tasks are not full list of HumanoidBench tasks
-        "h1hand-reach-v0": H1HandReachArgs,
-        "h1hand-balance-simple-v0": H1HandBalanceSimpleArgs,
+        # h1hand v1 tasks
+        "h1hand-run-v1": H1HandRunArgs,
+        "h1hand-slide-v1": H1HandSlideArgs,
+        "h1hand-hurdle-v1": H1HandHurdleArgs,
+        "h1hand-door-v1": H1HandDoorArgs,
+        "h1hand-balance_simple-v1": H1HandBalanceSimpleArgs,
+        "h1hand-push-v1": H1HandPushArgs,
+        "h1hand-reach-v1": H1HandReachArgs,
+        "h1hand-walk-v1": H1HandWalkArgs,
+        "h1hand-stand-v1": H1HandStandArgs,
+        "h1hand-crawl-v1": H1HandCrawlArgs,
+        "h1hand-stair-v1": H1HandStairArgs,
+        "h1hand-sit-v1": H1HandSitArgs,
+        "h1hand-sit_simple-v1": H1HandSitArgs,
+        "h1hand-sit_hard-v1": H1HandSitHardArgs,
+        
+        # v0 h1hand tasks (kept for backward compatibility)
+        "h1hand-reach-v0": H1HandReachV0Args,
+        "h1hand-balance_simple-v0": H1HandBalanceSimpleV0Args,
         "h1hand-balance-hard-v0": H1HandBalanceHardArgs,
         "h1hand-pole-v0": H1HandPoleArgs,
         "h1hand-truck-v0": H1HandTruckArgs,
@@ -229,18 +245,103 @@ class H1DoorArgs(HumanoidBenchV1Args):
 
 @dataclass
 class H1BalanceSimpleArgs(HumanoidBenchV1Args):
-    total_timesteps: int = 400_001
+    total_timesteps: int = 150_001
 
+# Old v0 h1hand tasks (kept for backward compatibility with different naming)
 @dataclass
-class H1HandReachArgs(HumanoidBenchArgs):
+class H1HandReachV0Args(HumanoidBenchArgs):
     env_name: str = "h1hand-reach-v0"
     v_min: float = -2000.0
     v_max: float = 2000.0
 
 
 @dataclass
-class H1HandBalanceSimpleArgs(HumanoidBenchArgs):
-    env_name: str = "h1hand-balance-simple-v0"
+class H1HandBalanceSimpleV0Args(HumanoidBenchArgs):
+    env_name: str = "h1hand-balance_simple-v0"
+    total_timesteps: int = 200000
+
+
+@dataclass
+class H1HandBalanceHardArgs(HumanoidBenchArgs):
+    env_name: str = "h1hand-balance-hard-v0"
+    total_timesteps: int = 1000000
+
+
+@dataclass
+class H1HandPushV0Args(HumanoidBenchArgs):
+    env_name: str = "h1hand-push-v0"
+    v_min: float = -1000.0
+    v_max: float = 1000.0
+    total_timesteps: int = 1000000
+
+# H1Hand v1 tasks (150% of h1 tasks)
+@dataclass
+class H1HandRunArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 50_001  # 50_001 * 1.5
+
+@dataclass
+class H1HandSlideArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 100_001  # 50_001 * 1.5
+
+@dataclass
+class H1HandHurdleArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 200_001  # 150_001 * 1.5
+
+@dataclass
+class H1HandDoorArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 400_001  # 500_001 * 1.5
+
+@dataclass
+class H1HandBalanceSimpleArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 400_001  # 400_001 * 1.5
+
+@dataclass
+class H1HandPushArgs(HumanoidBenchV1Args):
+    v_min: float = -2000.0
+    v_max: float = 2000.0
+    total_timesteps: int = 300_001  # 250_001 * 1.5
+
+@dataclass
+class H1HandReachArgs(HumanoidBenchV1Args):
+    v_min: float = -2000.0
+    v_max: float = 2000.0
+    total_timesteps: int = 400_001  # 350_001 * 1.5
+
+@dataclass
+class H1HandWalkArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 100_001  # 100_000 * 1.5
+
+@dataclass
+class H1HandStandArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 100_001  # 100_000 * 1.5
+
+@dataclass
+class H1HandCrawlArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 100_001  # 100_000 * 1.5
+
+@dataclass
+class H1HandStairArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 200_000  # 100_000 * 1.5
+
+@dataclass
+class H1HandSitArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 100_000  # 100_000 * 1.5
+
+@dataclass
+class H1HandSitHardArgs(HumanoidBenchV1Args):
+    total_timesteps: int = 200_000  # 100_000 * 1.5
+
+# Old v0 h1hand tasks (these are kept for backward compatibility)
+@dataclass
+class H1HandReachV0Args(HumanoidBenchArgs):
+    env_name: str = "h1hand-reach-v0"
+    v_min: float = -2000.0
+    v_max: float = 2000.0
+
+
+@dataclass
+class H1HandBalanceSimpleV0Args(HumanoidBenchArgs):
+    env_name: str = "h1hand-balance_simple-v0"
     total_timesteps: int = 200000
 
 
@@ -270,7 +371,7 @@ class H1HandMazeArgs(HumanoidBenchArgs):
 
 
 @dataclass
-class H1HandPushArgs(HumanoidBenchArgs):
+class H1HandPushV0Args(HumanoidBenchArgs):
     env_name: str = "h1hand-push-v0"
     v_min: float = -1000.0
     v_max: float = 1000.0

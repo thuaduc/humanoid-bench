@@ -54,6 +54,22 @@ from .envs.custom_env import (
     SitHard as SitHardV1,
     Reach as ReachV1,
     Push as PushV1,
+    Door as DoorV1,
+)
+from .envs.custom_env_h1hand import (
+    Stand as StandH1HandV1,
+    Walk as WalkH1HandV1,
+    Run as RunH1HandV1,
+    Hurdle as HurdleH1HandV1,
+    Crawl as CrawlH1HandV1,
+    Sit as SitH1HandV1,
+    Stair as StairH1HandV1,
+    Slide as SlideH1HandV1,
+    BalanceSimple as BalanceSimpleH1HandV1,
+    SitHard as SitHardH1HandV1,
+    Reach as ReachH1HandV1,
+    Push as PushH1HandV1,
+    Door as DoorH1HandV1,
 )
 from .envs.reach import Reach
 from .envs.pole import Pole
@@ -130,10 +146,29 @@ TASKS_CUSTOM = {
     "sit_hard-v1": SitHardV1,
     "reach-v1": ReachV1,
     "push-v1": PushV1,
+    "door-v1": DoorV1,
 }
 
-# Merged tasks dictionary (used by HumanoidEnv)
-TASKS = {**_TASKS_ORIGINAL, **TASKS_CUSTOM}
+# H1Hand custom tasks - separate dict to allow custom registration
+TASKS_CUSTOM_H1HAND = {
+    "h1hand-stand-v1": StandH1HandV1,
+    "h1hand-walk-v1": WalkH1HandV1,
+    "h1hand-run-v1": RunH1HandV1,
+    "h1hand-slide-v1": SlideH1HandV1,
+    "h1hand-crawl-v1": CrawlH1HandV1,
+    "h1hand-sit-v1": SitH1HandV1,
+    "h1hand-hurdle-v1": HurdleH1HandV1,
+    "h1hand-balance_simple-v1": BalanceSimpleH1HandV1,
+    "h1hand-stair-v1": StairH1HandV1,
+    "h1hand-sit_simple-v1": SitH1HandV1,
+    "h1hand-sit_hard-v1": SitHardH1HandV1,
+    "h1hand-reach-v1": ReachH1HandV1,
+    "h1hand-push-v1": PushH1HandV1,
+    "h1hand-door-v1": DoorH1HandV1,
+}
+
+# Merged tasks dictionary (used by HumanoidEnv) - includes both h1 and h1hand variants
+TASKS = {**_TASKS_ORIGINAL, **TASKS_CUSTOM, **TASKS_CUSTOM_H1HAND}
 
 
 class HumanoidEnv(MujocoEnv, gym.utils.EzPickle):

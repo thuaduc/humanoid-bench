@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 
 from fast_td3.robots.graph_builder import GraphBuilder
-from humanoid_bench.envs.custom_env import unflatten_obs
 
 
 class TransformerV2(nn.Module):
@@ -10,7 +9,7 @@ class TransformerV2(nn.Module):
     Transformer-based actor with hierarchical attention: joints-only encoder + cross-attention.
     
     Architecture:
-    1. Project joint (5d) and object (13d) features to hidden_nf
+    1. Project joint (5d) and object features to hidden_nf
     2. Add type embeddings (joint vs object tokens) + positional embeddings to joints only
     3. Apply n-layer self-attention transformer to joints only
     4. Cross-attention: joints query object node for global context
@@ -38,16 +37,16 @@ class TransformerV2(nn.Module):
     ):
         """
         :param in_joint_nf: Number of features for joint nodes (pos, vel, x, y, z) = 5
-        :param in_object_nf: Number of features for object nodes (pelvis state) = 13
+        :param in_object_nf: Number of features for object/global token (env-specific)
         :param out_node_nf: Output dimension per node (unused in this architecture)
-        :param hidden_nf: Hidden dimension for embeddings and transformer (64d)
+        :param hidden_nf: Hidden dimension for embeddings and transformer
         :param device: Device (e.g. 'cpu', 'cuda:0',...)
         :param batch_size: Batch size for vectorized environments
         :param act_fn: Activation function
-        :param n_layers: Number of transformer layers (2)
+        :param n_layers: Number of transformer layers
         :param robot: Robot name for graph builder
         :param env_name: Environment name
-        :param num_heads: Number of attention heads (4)
+        :param num_heads: Number of attention heads
         :param dropout: Dropout rate
         """
         super().__init__()
@@ -58,18 +57,19 @@ class TransformerV2(nn.Module):
         self.robot = robot
         self.in_joint_nf = in_joint_nf
         self.in_object_nf = in_object_nf
+        self.object_feature_dim = in_object_nf
         self.num_heads = num_heads
         
         self.graph_builder = GraphBuilder(env_name, batch_size, device, robot)
         self.num_joints = self.graph_builder.robot.num_joints
         
-        # Joint projection: 5d -> hidden_nf (64d)
+        # Joint projection: 5d -> hidden_nf
         self.joint_projection = nn.Sequential(
             nn.Linear(in_joint_nf, hidden_nf),
             act_fn,
         )
         
-        # Object projection: 13d -> hidden_nf (64d)
+        # Object projection: object_feature_dim -> hidden_nf
         self.object_projection = nn.Sequential(
             nn.Linear(in_object_nf, hidden_nf),
             act_fn,
@@ -85,11 +85,11 @@ class TransformerV2(nn.Module):
             torch.randn(1, 1, hidden_nf) * 0.02
         )
         
-        # Transformer encoder for joints only: 2 layers, 64d, 4 heads
+        # Transformer encoder for joints only
         transformer_layer = nn.TransformerEncoderLayer(
             d_model=hidden_nf,
             nhead=num_heads,
-            dim_feedforward=hidden_nf * 4,
+            dim_feedforward=hidden_nf * 2,
             dropout=dropout,
             batch_first=True,
             activation="relu",
@@ -108,11 +108,9 @@ class TransformerV2(nn.Module):
         )
         self.cross_attn_norm = nn.LayerNorm(hidden_nf)
         
-        # Per-joint action head: 64d -> 256d -> 64d -> 1
+        # Per-joint action head: hidden_nf -> hidden_nf -> 1
         self.action_head = nn.Sequential(
-            nn.Linear(hidden_nf, hidden_nf * 4),
-            act_fn,
-            nn.Linear(hidden_nf * 4, hidden_nf),
+            nn.Linear(hidden_nf, hidden_nf),
             act_fn,
             nn.Linear(hidden_nf, 1),
             nn.Tanh(),
@@ -131,7 +129,9 @@ class TransformerV2(nn.Module):
         4. Cross-attention: joints query object for global context
         5. Generate actions from contextualized joint features
         """
-        h_joints, h_objects = unflatten_obs(obs, self.env_name)
+        batch_size = obs.shape[0]
+        h_objects = obs[:, :self.object_feature_dim].unsqueeze(1)
+        h_joints = obs[:, self.object_feature_dim:].view(batch_size, self.num_joints, self.in_joint_nf)
 
         # Step 1: Project features to hidden dimension
         joint_embeddings = self.joint_projection(h_joints)
