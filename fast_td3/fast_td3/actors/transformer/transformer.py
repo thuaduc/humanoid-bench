@@ -1,6 +1,11 @@
 import torch
 import torch.nn as nn
 
+from fast_td3.actors.transformer.kinematic_types import (
+    NUM_JOINT_TYPES,
+    build_token_type_ids,
+)
+
 
 class Transformer(nn.Module):
     """
@@ -63,13 +68,18 @@ class Transformer(nn.Module):
             act_fn,
         )
         
-        # Learnable positional embeddings for joints and objects
-        # We'll have (num_joints + 1) positions since we have 1 object token
+        # Kinematic type embeddings: each joint/token is assigned a type id
+        # based on its role in the robot's kinematic chain (shared across
+        # symmetric left/right counterparts).
+        # h1: 19 body joints; h1hand: 69 (body + 2 × shadow hand).
+        # Note: custom_env_h1hand.py slices only 19 body joints from qpos —
+        # use num_joints=19 for those envs, 69 for full-observation variants.
         self.num_joints = 69 if "h1hand" in env_name else 19
-        max_positions = self.num_joints + 1
-        self.positional_embeddings = nn.Parameter(
-            torch.randn(max_positions, hidden_nf) * 0.02
-        )
+        self.kinematic_embedding = nn.Embedding(NUM_JOINT_TYPES, hidden_nf)
+
+        # Build the type-id sequence: [joint_0_type, ..., joint_N-1_type, global_token_type]
+        type_ids = build_token_type_ids(robot=robot, num_joints=self.num_joints)
+        self.register_buffer("joint_type_ids", type_ids)
         
         # Transformer encoder: 2 layers, 64d, 4 heads
         transformer_layer = nn.TransformerEncoderLayer(
@@ -105,12 +115,13 @@ class Transformer(nn.Module):
         joint_embeddings = self.joint_projection(h_joints)
         object_embeddings = self.object_projection(h_objects)
 
-        # Sequence layout matches positional_embeddings: joints 0..N-1, global token last
+        # Sequence layout: joints 0..N-1, global token last
         node_sequence = torch.cat([joint_embeddings, object_embeddings], dim=1)
-        node_sequence = node_sequence + self.positional_embeddings.unsqueeze(0)
+        kinematic_emb = self.kinematic_embedding(self.joint_type_ids).unsqueeze(0)
+        node_sequence = node_sequence + kinematic_emb
 
         transformer_output = self.transformer(node_sequence)
-        transformer_output = transformer_output + self.positional_embeddings.unsqueeze(0)
+        transformer_output = transformer_output + kinematic_emb
 
         joint_output = transformer_output[:, : self.num_joints, :]
         actions = self.action_head(joint_output)
