@@ -147,6 +147,35 @@ class Robot(ABC):
                 
         return errors
     
+    def get_distance_matrix(self) -> List[List[int]]:
+        """Compute all-pairs BFS shortest-path distances on the kinematic graph.
+
+        Returns:
+            n×n list where entry [i][j] is the shortest-path distance between
+            joint i and joint j.  Unconnected pairs get distance n (num joints).
+        """
+        from collections import deque
+        n = self.get_joint_count()
+
+        adj: Dict[int, List[int]] = {i: [] for i in range(n)}
+        for a, b in self.joint_connections:
+            adj[int(a)].append(int(b))
+
+        dist = [[n] * n for _ in range(n)]
+        for start in range(n):
+            dist[start][start] = 0
+            q = deque([start])
+            visited = {start}
+            while q:
+                node = q.popleft()
+                for neighbor in adj[node]:
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        dist[start][neighbor] = dist[start][node] + 1
+                        q.append(neighbor)
+
+        return dist
+
     def __str__(self) -> str:
         """String representation of the robot."""
         return f"{self.__class__.__name__}(joints={self.get_joint_count()}, connections={self.get_connection_count()})"

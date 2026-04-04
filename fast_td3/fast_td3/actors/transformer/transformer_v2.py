@@ -75,11 +75,19 @@ class TransformerV2(nn.Module):
             act_fn,
         )
         
-        # Learnable positional embeddings for joints only
-        self.positional_embeddings = nn.Parameter(
-            torch.randn(self.num_joints, hidden_nf) * 0.02
-        )
-        
+        # Positional embeddings for joints — initialised with kinematic depth
+        # sinusoidal encoding so joints at the same chain depth share similar codes.
+        if robot == "h1" and self.num_joints == 19:
+            import math
+            from fast_td3.robots.h1 import H1
+            h1_robot = H1()
+            depth_map = h1_robot.kinematic_depth
+            depths = [depth_map[H1.JOINT(j)] for j in range(self.num_joints)]
+            pos_init = TransformerV2._make_sinusoidal_v2(depths, hidden_nf)
+        else:
+            pos_init = torch.randn(self.num_joints, hidden_nf) * 0.02
+        self.positional_embeddings = nn.Parameter(pos_init)
+
         # Type embedding to mark joint tokens
         self.joint_type_embedding = nn.Parameter(
             torch.randn(1, 1, hidden_nf) * 0.02
@@ -99,6 +107,20 @@ class TransformerV2(nn.Module):
             num_layers=n_layers,
         )
         
+        # --- Soft kinematic attention bias for joint self-attention ---
+        self.use_kinematic_bias = robot == "h1" and self.num_joints == 19
+        if self.use_kinematic_bias:
+            from fast_td3.robots.h1 import H1
+            h1_robot = H1()
+            raw_dist = h1_robot.get_distance_matrix()  # 19×19
+            self.num_dist_buckets = 4
+            dist_mat = torch.zeros(self.num_joints, self.num_joints, dtype=torch.long)
+            for i in range(self.num_joints):
+                for j in range(self.num_joints):
+                    dist_mat[i, j] = min(raw_dist[i][j], self.num_dist_buckets - 1)
+            self.register_buffer("dist_mat", dist_mat)
+            self.kinematic_bias = nn.Parameter(torch.zeros(self.num_dist_buckets))
+
         # Cross-attention: joints query, object provides context
         self.joint_to_object_cross_attn = nn.MultiheadAttention(
             embed_dim=hidden_nf,
@@ -117,6 +139,22 @@ class TransformerV2(nn.Module):
         )
         
         self.to(device)
+
+    @staticmethod
+    def _make_sinusoidal_v2(depths: list, d_model: int) -> torch.Tensor:
+        import math
+        positions = torch.tensor(depths, dtype=torch.float32)
+        div_term = torch.exp(
+            torch.arange(0, d_model, 2, dtype=torch.float32)
+            * (-math.log(10.0) / max(d_model - 1, 1))
+        )
+        pe = torch.zeros(len(depths), d_model)
+        pe[:, 0::2] = torch.sin(positions.unsqueeze(1) * div_term.unsqueeze(0))
+        if d_model % 2 == 0:
+            pe[:, 1::2] = torch.cos(positions.unsqueeze(1) * div_term.unsqueeze(0))
+        else:
+            pe[:, 1::2] = torch.cos(positions.unsqueeze(1) * div_term[:-1].unsqueeze(0))
+        return pe
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         """
@@ -142,7 +180,11 @@ class TransformerV2(nn.Module):
         joint_embeddings = joint_embeddings + self.positional_embeddings.unsqueeze(0)
         
         # Step 3: Apply self-attention transformer to joints only
-        joint_output = self.transformer(joint_embeddings)
+        if self.use_kinematic_bias:
+            attn_bias = self.kinematic_bias[self.dist_mat].to(obs.dtype)
+        else:
+            attn_bias = None
+        joint_output = self.transformer(joint_embeddings, mask=attn_bias)
         
         # Step 4: Cross-attention - joints query object for global context
         joint_contextualized, _ = self.joint_to_object_cross_attn(
