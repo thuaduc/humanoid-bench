@@ -106,6 +106,25 @@ class H1(Robot):
             self.add_connection(a, b)
 
     @property
+    def kinematic_depth(self):
+        """Depth of each joint in the primary kinematic chain from torso.
+
+        Ignores shortcut connections (e.g. torso→ankle) to reflect the true
+        kinematic hierarchy: torso(0) → hip/shoulder(1) → knee/elbow(2) → ankle(3).
+        """
+        J = self.JOINT
+        return {
+            J.torso: 0,
+            J.left_hip_yaw: 1,   J.left_hip_roll: 1,   J.left_hip_pitch: 1,
+            J.right_hip_yaw: 1,  J.right_hip_roll: 1,  J.right_hip_pitch: 1,
+            J.left_shoulder_pitch: 1, J.left_shoulder_roll: 1, J.left_shoulder_yaw: 1,
+            J.right_shoulder_pitch: 1, J.right_shoulder_roll: 1, J.right_shoulder_yaw: 1,
+            J.left_knee: 2,  J.right_knee: 2,
+            J.left_elbow: 2, J.right_elbow: 2,
+            J.left_ankle: 3, J.right_ankle: 3,
+        }
+
+    @property
     def num_edges(self):
         """Number of edges in the robot graph."""
         return len(self.joint_connections)
