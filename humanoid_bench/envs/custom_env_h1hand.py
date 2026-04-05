@@ -22,15 +22,20 @@ from humanoid_bench.envs.door import Door as DoorV0
 
 class CustomObservationH1Hand:
     base_task_name = None
-    num_objects = 1
-    num_joints = 19
+    num_joints = 69  # H1Hand has 76 DOF: 7 for pelvis + 69 joints
 
     @property
     def observation_space(self):
+        # Observation structure:
+        # - pelvis (7) + pelvis_velocities (6) = 13 (object features)
+        # - For each of 69 joints: position (1) + velocity (1) + xanchor (3) = 5 features
+        # Total: 13 + 69 * 5 = 358
+        num_joints = self.robot.dof - 7  # Subtract 7 for pelvis (3 pos + 4 quat)
+        obs_dim = 13 + num_joints * 5
         return Box(
             low=-np.inf,
             high=np.inf,
-            shape=(108,),
+            shape=(obs_dim,),
             dtype=np.float64,
         )
 
@@ -53,7 +58,7 @@ class CustomObservationH1Hand:
     def get_obs_shapes():
         return {
             "object_features": (13,),
-            "joint_features": (19, 5),
+            "joint_features": (69, 5),  # 69 joints, 5 features each
         }
 
     @staticmethod
@@ -65,7 +70,7 @@ class CustomObservationH1Hand:
     def unflatten_obs(flat_obs):
         batch_size = flat_obs.shape[0]
         h_objects = flat_obs[:, :13].unsqueeze(1)
-        h_joints = flat_obs[:, 13:].view(batch_size, 19, 5)
+        h_joints = flat_obs[:, 13:].view(batch_size, 69, 5)  # 69 joints, not 19
         return h_joints, h_objects
 
 
@@ -91,14 +96,17 @@ class Sit(CustomObservationH1Hand, SitV0):
 
 class BalanceSimple(CustomObservationH1Hand, BalanceSimpleV0):
     base_task_name = "balance_simple"
-    num_joints = 19
+    num_joints = 69
     
     @property
     def observation_space(self):
+        # Object features: pelvis (7) + pelvis_vel (6) + balance_object (3) + box (4) + box_vel (6) = 26
+        # Joint features: 69 joints × 5 features = 345
+        # Total: 26 + 345 = 371
         return Box(
             low=-np.inf,
             high=np.inf,
-            shape=(121,),
+            shape=(371,),
             dtype=np.float64,
         )
     
@@ -112,18 +120,24 @@ class BalanceSimple(CustomObservationH1Hand, BalanceSimpleV0):
         xanchor = self._env.data.xanchor.copy()
         xanchor = (xanchor[:, :] - xanchor[0, :]) / 8
 
-        joint_positions = qpos[7:26]
-        joint_velocities = qvel[6:25]
-        joint_x = xanchor[1:20, :]
+        pelvis = qpos[0:7]
+        pelvis_velocities = qvel[0:6]
+        balance_object = xanchor[70, :]  # Assuming balance object is at anchor 70
+        box_pos = qpos[76:80]  # Box position (4 elements including quaternion)
+        box_vel = qvel[75:81]  # Box velocity (6 elements)
+        
+        joint_positions = qpos[7:76]
+        joint_velocities = qvel[6:75]
+        joint_x = xanchor[1:70, :]
 
         joint_features = np.column_stack([joint_positions, joint_velocities, joint_x])
         return np.concatenate(
             [
-                qpos[0:7],
-                qvel[0:6],
-                xanchor[20, :],
-                qpos[29:33],
-                qvel[25:31],
+                pelvis,
+                pelvis_velocities,
+                balance_object,
+                box_pos,
+                box_vel,
                 joint_features.flatten(),
             ]
         )
@@ -132,7 +146,7 @@ class BalanceSimple(CustomObservationH1Hand, BalanceSimpleV0):
     def get_obs_shapes():
         return {
             "object_features": (26,),
-            "joint_features": (19, 5),
+            "joint_features": (69, 5),
         }
 
     @staticmethod
@@ -140,19 +154,22 @@ class BalanceSimple(CustomObservationH1Hand, BalanceSimpleV0):
     def unflatten_obs(flat_obs):
         batch_size = flat_obs.shape[0]
         h_objects = flat_obs[:, :26].unsqueeze(1)
-        h_joints = flat_obs[:, 26:].view(batch_size, 19, 5)
+        h_joints = flat_obs[:, 26:].view(batch_size, 69, 5)
         return h_joints, h_objects
 
 class SitHard(CustomObservationH1Hand, SitHardV0):
     base_task_name = "sit_hard"
-    num_objects = 2
+    num_joints = 69
     
     @property
     def observation_space(self):
+        # Object features: pelvis (7) + chair (4) + pelvis_vel (6) + chair_vel (6) = 23
+        # Joint features: 69 joints × 5 features = 345
+        # Total: 23 + 345 = 368
         return Box(
             low=-np.inf,
             high=np.inf,
-            shape=(118,),
+            shape=(368,),
             dtype=np.float64,
         )
 
@@ -166,17 +183,22 @@ class SitHard(CustomObservationH1Hand, SitHardV0):
         xanchor = self._env.data.xanchor.copy()
         xanchor = (xanchor[:, :] - xanchor[0, :]) / 8
 
-        joint_positions = qpos[7:26]
-        joint_velocities = qvel[6:25]
-        joint_x = xanchor[1:20, :]
+        pelvis = qpos[0:7]
+        chair_pos = qpos[76:80]  # Chair position
+        pelvis_velocities = qvel[0:6]
+        chair_vel = qvel[75:81]  # Chair velocity
+        
+        joint_positions = qpos[7:76]
+        joint_velocities = qvel[6:75]
+        joint_x = xanchor[1:70, :]
 
         joint_features = np.column_stack([joint_positions, joint_velocities, joint_x])
         return np.concatenate(
             [
-                qpos[0:7],
-                qpos[26:30],
-                qvel[0:6],
-                qvel[25:31],
+                pelvis,
+                chair_pos,
+                pelvis_velocities,
+                chair_vel,
                 joint_features.flatten(),
             ]
         )
@@ -185,7 +207,7 @@ class SitHard(CustomObservationH1Hand, SitHardV0):
     def get_obs_shapes():
         return {
             "object_features": (23,),
-            "joint_features": (19, 5),
+            "joint_features": (69, 5),
         }
 
     @staticmethod
@@ -193,21 +215,24 @@ class SitHard(CustomObservationH1Hand, SitHardV0):
     def unflatten_obs(flat_obs):
         batch_size = flat_obs.shape[0]
         h_objects = flat_obs[:, :23].unsqueeze(1)
-        h_joints = flat_obs[:, 23:].view(batch_size, 19, 5)
+        h_joints = flat_obs[:, 23:].view(batch_size, 69, 5)
         return h_joints, h_objects
 
 
 class Reach(CustomObservationH1Hand, ReachV0):
     base_task_name = "reach"
-    num_joints = 19
+    num_joints = 69
    
     
     @property
     def observation_space(self):
+        # Object features: pelvis (7) + pelvis_vel (6) + left_hand_pos (3) + goal (3) = 19
+        # Joint features: 69 joints × 5 features = 345
+        # Total: 19 + 345 = 364
         return Box(
             low=-np.inf,
             high=np.inf,
-            shape=(114,),
+            shape=(364,),
             dtype=np.float64,
         )
     
@@ -221,17 +246,22 @@ class Reach(CustomObservationH1Hand, ReachV0):
         xanchor = self._env.data.xanchor.copy()
         xanchor = (xanchor[:, :] - xanchor[0, :]) / 8
 
-        joint_positions = qpos[7:26]
-        joint_velocities = qvel[6:25]
-        joint_x = xanchor[1:20, :]
+        pelvis = qpos[0:7]
+        pelvis_velocities = qvel[0:6]
+        left_hand_pos = self.robot.left_hand_position()
+        goal = self.goal
+        
+        joint_positions = qpos[7:76]
+        joint_velocities = qvel[6:75]
+        joint_x = xanchor[1:70, :]
 
         joint_features = np.column_stack([joint_positions, joint_velocities, joint_x])
         return np.concatenate(
             [
-                qpos[0:7],
-                qvel[0:6],
-                self.robot.left_hand_position(),
-                self.goal,
+                pelvis,
+                pelvis_velocities,
+                left_hand_pos,
+                goal,
                 joint_features.flatten(),
             ]
         )
@@ -240,7 +270,7 @@ class Reach(CustomObservationH1Hand, ReachV0):
     def get_obs_shapes():
         return {
             "object_features": (19,),
-            "joint_features": (19, 5),
+            "joint_features": (69, 5),
         }
 
     @staticmethod
@@ -248,20 +278,23 @@ class Reach(CustomObservationH1Hand, ReachV0):
     def unflatten_obs(flat_obs):
         batch_size = flat_obs.shape[0]
         h_objects = flat_obs[:, :19].unsqueeze(1)
-        h_joints = flat_obs[:, 19:].view(batch_size, 19, 5)
+        h_joints = flat_obs[:, 19:].view(batch_size, 69, 5)
         return h_joints, h_objects
 
 
 class Push(CustomObservationH1Hand, PushV0):
     base_task_name = "push"
-    num_objects = 2
-    num_joints = 19
+    num_joints = 69
+    
     @property
     def observation_space(self):
+        # Object features: pelvis (7) + pelvis_vel (6) + box_pos (3) + box_quat (4) + box_vel (3) + hand_pos (3) + goal (3) = 29
+        # Joint features: 69 joints × 5 features = 345
+        # Total: 29 + 345 = 374
         return Box(
             low=-np.inf,
             high=np.inf,
-            shape=(124,),
+            shape=(374,),
             dtype=np.float64,
         )
     
@@ -275,25 +308,29 @@ class Push(CustomObservationH1Hand, PushV0):
         xanchor = self._env.data.xanchor.copy()
         xanchor = (xanchor[:, :] - xanchor[0, :]) / 8
         
+        pelvis = qpos[0:7]
+        pelvis_velocities = qvel[0:6]
         box_position = qpos[-7:-4]
         box_quaternion = qpos[-4:]
         dofadr = self._env.named.model.body_dofadr["object"]
         box_linear_vel = qvel[dofadr : dofadr + 3]
+        left_hand_pos = self.robot.left_hand_position()
+        goal = self.goal
 
-        joint_positions = qpos[7:26]
-        joint_velocities = qvel[6:25]
-        joint_x = xanchor[1:20, :]
+        joint_positions = qpos[7:76]
+        joint_velocities = qvel[6:75]
+        joint_x = xanchor[1:70, :]
 
         joint_features = np.column_stack([joint_positions, joint_velocities, joint_x])
         return np.concatenate(
             [
-                qpos[0:7],
-                qvel[0:6],
+                pelvis,
+                pelvis_velocities,
                 box_position,
                 box_quaternion,
                 box_linear_vel,
-                self.robot.left_hand_position(),
-                self.goal,
+                left_hand_pos,
+                goal,
                 joint_features.flatten(),
             ]
         )
@@ -302,7 +339,7 @@ class Push(CustomObservationH1Hand, PushV0):
     def get_obs_shapes():
         return {
             "object_features": (29,),
-            "joint_features": (19, 5),
+            "joint_features": (69, 5),
         }
 
     @staticmethod
@@ -310,20 +347,23 @@ class Push(CustomObservationH1Hand, PushV0):
     def unflatten_obs(flat_obs):
         batch_size = flat_obs.shape[0]
         h_objects = flat_obs[:, :29].unsqueeze(1)
-        h_joints = flat_obs[:, 29:].view(batch_size, 19, 5)
+        h_joints = flat_obs[:, 29:].view(batch_size, 69, 5)
         return h_joints, h_objects
 
 
 class Door(CustomObservationH1Hand, DoorV0):
     base_task_name = "door"
-    num_objects = 1
+    num_joints = 69
     
     @property
     def observation_space(self):
+        # Object features: pelvis (7) + pelvis_vel (6) + door_pos (2) + door_vel (2) = 17
+        # Joint features: 69 joints × 5 features = 345
+        # Total: 17 + 345 = 362
         return Box(
             low=-np.inf,
             high=np.inf,
-            shape=(112,),
+            shape=(362,),
             dtype=np.float64,
         )
 
@@ -337,17 +377,23 @@ class Door(CustomObservationH1Hand, DoorV0):
         xanchor = self._env.data.xanchor.copy()
         
         xanchor = (xanchor[:, :] - xanchor[0, :]) / 8
-        joint_positions = qpos[7:26]
-        joint_velocities = qvel[6:25]
-        joint_x = xanchor[1:20, :]
+        
+        pelvis = qpos[0:7]
+        pelvis_velocities = qvel[0:6]
+        door_pos = np.array([qpos[76], qpos[77]])  # Door position
+        door_vel = np.array([qvel[75], qvel[76]])  # Door velocity
+        
+        joint_positions = qpos[7:76]
+        joint_velocities = qvel[6:75]
+        joint_x = xanchor[1:70, :]
 
         joint_features = np.column_stack([joint_positions, joint_velocities, joint_x])
         return np.concatenate(
             [
-                qpos[0:7],
-                qvel[0:6],
-                np.array([qpos[26], qpos[27]]),
-                np.array([qvel[25], qvel[26]]),
+                pelvis,
+                pelvis_velocities,
+                door_pos,
+                door_vel,
                 joint_features.flatten(),
             ]
         )
@@ -356,15 +402,15 @@ class Door(CustomObservationH1Hand, DoorV0):
     def get_obs_shapes():
         return {
             "object_features": (17,),
-            "joint_features": (19, 5),
+            "joint_features": (69, 5),
         }
-        
+
     @staticmethod
     @torch.jit.script
     def unflatten_obs(flat_obs):
         batch_size = flat_obs.shape[0]
         h_objects = flat_obs[:, :17].unsqueeze(1)
-        h_joints = flat_obs[:, 17:].view(batch_size, 19, 5)
+        h_joints = flat_obs[:, 17:].view(batch_size, 69, 5)
         return h_joints, h_objects
      
 
