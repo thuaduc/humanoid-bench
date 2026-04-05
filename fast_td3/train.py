@@ -72,7 +72,7 @@ def main():
         help="Number of parallel environments to use.",
     )
     parser.add_argument(
-        "--batch_size", type=int, default=32768, help="Batch size for training."
+        "--batch_size", type=int, default=16384, help="Batch size for training."
     )
     parser.add_argument("--wandb", action="store_true", help="Enable wandb logging")
     parser.add_argument(

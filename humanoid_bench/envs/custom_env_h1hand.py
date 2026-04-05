@@ -14,10 +14,12 @@ from humanoid_bench.envs.basic_locomotion_envs import (
     Sit as SitV0,
     SitHard as SitHardV0,
 )
-from humanoid_bench.envs.balance import BalanceSimple as BalanceSimpleV0
+from humanoid_bench.envs.balance import BalanceSimple as BalanceSimpleV0, BalanceHard as BalanceHardV0
 from humanoid_bench.envs.reach import Reach as ReachV0
 from humanoid_bench.envs.push import Push as PushV0
 from humanoid_bench.envs.door import Door as DoorV0
+from humanoid_bench.envs.window import Window as WindowV0
+from humanoid_bench.envs.basketball import Basketball as BasketballV0
 
 
 class CustomObservationH1Hand:
@@ -414,6 +416,200 @@ class Door(CustomObservationH1Hand, DoorV0):
         return h_joints, h_objects
      
 
+class Window(CustomObservationH1Hand, WindowV0):
+    base_task_name = "window"
+    num_joints = 69
+
+    @property
+    def observation_space(self):
+        # Object features: pelvis (7) + pelvis_vel (6) + tool_pos_quat (7) + tool_vel (6) + head_pos (3) = 29
+        # Joint features: 69 joints × 5 features = 345
+        # Total: 29 + 345 = 374
+        return Box(
+            low=-np.inf,
+            high=np.inf,
+            shape=(374,),
+            dtype=np.float64,
+        )
+
+    @staticmethod
+    def get_object_feature_dim():
+        return 29
+
+    def get_obs(self) -> np.ndarray:
+        qpos = self._env.data.qpos.flat.copy()
+        qvel = self._env.data.qvel.flat.copy()
+        xanchor = self._env.data.xanchor.copy()
+        xanchor = (xanchor[:, :] - xanchor[0, :]) / 8
+
+        pelvis = qpos[0:7]
+        pelvis_velocities = qvel[0:6]
+        tool_pos_quat = qpos[76:83]   # wiping tool freejoint (3 pos + 4 quat)
+        tool_vel = qvel[75:81]        # wiping tool velocity (6 elements)
+        head_pos = self._env.named.data.site_xpos["head"].copy()
+
+        joint_positions = qpos[7:76]
+        joint_velocities = qvel[6:75]
+        joint_x = xanchor[1:70, :]
+
+        joint_features = np.column_stack([joint_positions, joint_velocities, joint_x])
+        return np.concatenate(
+            [
+                pelvis,
+                pelvis_velocities,
+                tool_pos_quat,
+                tool_vel,
+                head_pos,
+                joint_features.flatten(),
+            ]
+        )
+
+    @staticmethod
+    def get_obs_shapes():
+        return {
+            "object_features": (29,),
+            "joint_features": (69, 5),
+        }
+
+    @staticmethod
+    @torch.jit.script
+    def unflatten_obs(flat_obs):
+        batch_size = flat_obs.shape[0]
+        h_objects = flat_obs[:, :29].unsqueeze(1)
+        h_joints = flat_obs[:, 29:].view(batch_size, 69, 5)
+        return h_joints, h_objects
+
+
+class BalanceHard(CustomObservationH1Hand, BalanceHardV0):
+    base_task_name = "balance_hard"
+    num_joints = 69
+
+    @property
+    def observation_space(self):
+        # Object features: pelvis (7) + pelvis_vel (6) + obj1_pos (7) + obj1_vel (6) + obj2_pos (7) + obj2_vel (6) = 39
+        # Joint features: 69 joints × 5 features = 345
+        # Total: 39 + 345 = 384
+        return Box(
+            low=-np.inf,
+            high=np.inf,
+            shape=(384,),
+            dtype=np.float64,
+        )
+
+    @staticmethod
+    def get_object_feature_dim():
+        return 39
+
+    def get_obs(self) -> np.ndarray:
+        qpos = self._env.data.qpos.flat.copy()
+        qvel = self._env.data.qvel.flat.copy()
+        xanchor = self._env.data.xanchor.copy()
+        xanchor = (xanchor[:, :] - xanchor[0, :]) / 8
+
+        pelvis = qpos[0:7]
+        pelvis_velocities = qvel[0:6]
+        obj1_pos = qpos[76:83]   # first balance object (3 pos + 4 quat)
+        obj1_vel = qvel[75:81]   # first balance object velocity (6 elements)
+        obj2_pos = qpos[83:90]   # second balance object (3 pos + 4 quat)
+        obj2_vel = qvel[81:87]   # second balance object velocity (6 elements)
+
+        joint_positions = qpos[7:76]
+        joint_velocities = qvel[6:75]
+        joint_x = xanchor[1:70, :]
+
+        joint_features = np.column_stack([joint_positions, joint_velocities, joint_x])
+        return np.concatenate(
+            [
+                pelvis,
+                pelvis_velocities,
+                obj1_pos,
+                obj1_vel,
+                obj2_pos,
+                obj2_vel,
+                joint_features.flatten(),
+            ]
+        )
+
+    @staticmethod
+    def get_obs_shapes():
+        return {
+            "object_features": (39,),
+            "joint_features": (69, 5),
+        }
+
+    @staticmethod
+    @torch.jit.script
+    def unflatten_obs(flat_obs):
+        batch_size = flat_obs.shape[0]
+        h_objects = flat_obs[:, :39].unsqueeze(1)
+        h_joints = flat_obs[:, 39:].view(batch_size, 69, 5)
+        return h_joints, h_objects
+
+
+class Basketball(CustomObservationH1Hand, BasketballV0):
+    base_task_name = "basketball"
+    num_joints = 69
+
+    @property
+    def observation_space(self):
+        # Object features: pelvis (7) + pelvis_vel (6) + ball_pos (3) + ball_quat (4) + ball_vel (6) = 26
+        # Joint features: 69 joints × 5 features = 345
+        # Total: 26 + 345 = 371
+        return Box(
+            low=-np.inf,
+            high=np.inf,
+            shape=(371,),
+            dtype=np.float64,
+        )
+
+    @staticmethod
+    def get_object_feature_dim():
+        return 26
+
+    def get_obs(self) -> np.ndarray:
+        qpos = self._env.data.qpos.flat.copy()
+        qvel = self._env.data.qvel.flat.copy()
+        xanchor = self._env.data.xanchor.copy()
+        xanchor = (xanchor[:, :] - xanchor[0, :]) / 8
+
+        pelvis = qpos[0:7]
+        pelvis_velocities = qvel[0:6]
+        ball_pos = qpos[76:79]    # basketball position (3 elements)
+        ball_quat = qpos[79:83]   # basketball quaternion (4 elements)
+        ball_vel = qvel[75:81]    # basketball velocity (6 elements)
+
+        joint_positions = qpos[7:76]
+        joint_velocities = qvel[6:75]
+        joint_x = xanchor[1:70, :]
+
+        joint_features = np.column_stack([joint_positions, joint_velocities, joint_x])
+        return np.concatenate(
+            [
+                pelvis,
+                pelvis_velocities,
+                ball_pos,
+                ball_quat,
+                ball_vel,
+                joint_features.flatten(),
+            ]
+        )
+
+    @staticmethod
+    def get_obs_shapes():
+        return {
+            "object_features": (26,),
+            "joint_features": (69, 5),
+        }
+
+    @staticmethod
+    @torch.jit.script
+    def unflatten_obs(flat_obs):
+        batch_size = flat_obs.shape[0]
+        h_objects = flat_obs[:, :26].unsqueeze(1)
+        h_joints = flat_obs[:, 26:].view(batch_size, 69, 5)
+        return h_joints, h_objects
+
+
 ENV_CLASS_MAP = {
     "h1hand-stand-v1": Stand,
     "h1hand-walk-v1": Walk,
@@ -426,9 +622,12 @@ ENV_CLASS_MAP = {
     "h1hand-sit_simple-v1": Sit,
     "h1hand-sit_hard-v1": SitHard,
     "h1hand-balance_simple-v1": BalanceSimple,
+    "h1hand-balance_hard-v1": BalanceHard,
     "h1hand-reach-v1": Reach,
     "h1hand-push-v1": Push,
     "h1hand-door-v1": Door,
+    "h1hand-window-v1": Window,
+    "h1hand-basketball-v1": Basketball,
 }
 
 

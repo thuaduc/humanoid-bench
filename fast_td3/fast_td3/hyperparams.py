@@ -37,7 +37,7 @@ class BaseArgs:
     """the learning rate of the critic"""
     actor_learning_rate: float = 3e-4
     """the learning rate for the actor"""
-    buffer_size: int = 1024 * 50
+    buffer_size: int = 1024 * 25
     """the replay memory buffer size"""
     num_steps: int = 1
     """the number of steps to use for the multi-step return"""
@@ -45,7 +45,7 @@ class BaseArgs:
     """the discount factor gamma"""
     tau: float = 0.1
     """target smoothing coefficient (default: 0.005)"""
-    batch_size: int = 32768
+    batch_size: int = 16384
     """the batch size of sample from the replay memory"""
     policy_noise: float = 0.001
     """the scale of policy noise"""
@@ -148,6 +148,9 @@ def get_args():
         "h1hand-sit-v1": H1HandSitArgs,
         "h1hand-sit_simple-v1": H1HandSitArgs,
         "h1hand-sit_hard-v1": H1HandSitHardArgs,
+        "h1hand-window-v1": H1HandWindowV1Args,
+        "h1hand-balance_hard-v1": H1HandBalanceHardV1Args,
+        "h1hand-basketball-v1": H1HandBasketballV1Args,
         
         # v0 h1hand tasks (kept for backward compatibility)
         "h1hand-reach-v0": H1HandReachV0Args,
@@ -229,11 +232,11 @@ class H1ReachArgs(HumanoidBenchV1Args):
     
 @dataclass
 class H1RunArgs(HumanoidBenchV1Args):
-    total_timesteps: int = 50_001
+    total_timesteps: int = 40_001
     
 @dataclass
 class H1SlideArgs(HumanoidBenchV1Args):
-    total_timesteps: int = 50_001
+    total_timesteps: int = 40_001
     
 @dataclass
 class H1HurdleArgs(HumanoidBenchV1Args):
@@ -245,7 +248,7 @@ class H1DoorArgs(HumanoidBenchV1Args):
 
 @dataclass
 class H1BalanceSimpleArgs(HumanoidBenchV1Args):
-    total_timesteps: int = 150_001
+    total_timesteps: int = 100_001
 
 # Old v0 h1hand tasks (kept for backward compatibility with different naming)
 @dataclass
@@ -293,7 +296,7 @@ class H1HandDoorArgs(HumanoidBenchV1Args):
 
 @dataclass
 class H1HandBalanceSimpleArgs(HumanoidBenchV1Args):
-    total_timesteps: int = 400_001  # 400_001 * 1.5
+    total_timesteps: int = 300_001  # 400_001 * 1.5
 
 @dataclass
 class H1HandPushArgs(HumanoidBenchV1Args):
@@ -330,6 +333,20 @@ class H1HandSitArgs(HumanoidBenchV1Args):
 @dataclass
 class H1HandSitHardArgs(HumanoidBenchV1Args):
     total_timesteps: int = 200_000  # 100_000 * 1.5
+
+@dataclass
+class H1HandWindowV1Args(HumanoidBenchV1Args):
+    total_timesteps: int = 300_001
+
+@dataclass
+class H1HandBalanceHardV1Args(HumanoidBenchV1Args):
+    total_timesteps: int = 500_001
+
+@dataclass
+class H1HandBasketballV1Args(HumanoidBenchV1Args):
+    v_min: float = -2000.0
+    v_max: float = 2000.0
+    total_timesteps: int = 300_001
 
 # Old v0 h1hand tasks (these are kept for backward compatibility)
 @dataclass
