@@ -228,7 +228,7 @@ class H1PushArgs(HumanoidBenchV1Args):
 class H1ReachArgs(HumanoidBenchV1Args):
     v_min: float = -2000.0
     v_max: float = 2000.0
-    total_timesteps: int = 350_001
+    total_timesteps: int = 300_001
     
 @dataclass
 class H1RunArgs(HumanoidBenchV1Args):
@@ -244,7 +244,7 @@ class H1HurdleArgs(HumanoidBenchV1Args):
     
 @dataclass
 class H1DoorArgs(HumanoidBenchV1Args):
-    total_timesteps: int = 500_001
+    total_timesteps: int = 200_001
 
 @dataclass
 class H1BalanceSimpleArgs(HumanoidBenchV1Args):
@@ -266,8 +266,8 @@ class H1HandBalanceSimpleV0Args(HumanoidBenchArgs):
 
 @dataclass
 class H1HandBalanceHardArgs(HumanoidBenchArgs):
-    env_name: str = "h1hand-balance-hard-v0"
-    total_timesteps: int = 1000000
+    env_name: str = "h1hand-balance_hard-v0"
+    total_timesteps: int = 300000
 
 
 @dataclass
@@ -284,55 +284,55 @@ class H1HandRunArgs(HumanoidBenchV1Args):
 
 @dataclass
 class H1HandSlideArgs(HumanoidBenchV1Args):
-    total_timesteps: int = 100_001  # 50_001 * 1.5
+    total_timesteps: int = 100_001
 
 @dataclass
 class H1HandHurdleArgs(HumanoidBenchV1Args):
-    total_timesteps: int = 200_001  # 150_001 * 1.5
+    total_timesteps: int = 200_001
 
 @dataclass
 class H1HandDoorArgs(HumanoidBenchV1Args):
-    total_timesteps: int = 400_001  # 500_001 * 1.5
+    total_timesteps: int = 200_001
 
 @dataclass
 class H1HandBalanceSimpleArgs(HumanoidBenchV1Args):
-    total_timesteps: int = 300_001  # 400_001 * 1.5
+    total_timesteps: int = 300_001
 
 @dataclass
 class H1HandPushArgs(HumanoidBenchV1Args):
     v_min: float = -2000.0
     v_max: float = 2000.0
-    total_timesteps: int = 300_001  # 250_001 * 1.5
+    total_timesteps: int = 300_001
 
 @dataclass
 class H1HandReachArgs(HumanoidBenchV1Args):
     v_min: float = -2000.0
     v_max: float = 2000.0
-    total_timesteps: int = 400_001  # 350_001 * 1.5
+    total_timesteps: int = 300_001
 
 @dataclass
 class H1HandWalkArgs(HumanoidBenchV1Args):
-    total_timesteps: int = 100_001  # 100_000 * 1.5
+    total_timesteps: int = 100_001
 
 @dataclass
 class H1HandStandArgs(HumanoidBenchV1Args):
-    total_timesteps: int = 100_001  # 100_000 * 1.5
+    total_timesteps: int = 100_001
 
 @dataclass
 class H1HandCrawlArgs(HumanoidBenchV1Args):
-    total_timesteps: int = 100_001  # 100_000 * 1.5
+    total_timesteps: int = 100_001
 
 @dataclass
 class H1HandStairArgs(HumanoidBenchV1Args):
-    total_timesteps: int = 200_000  # 100_000 * 1.5
+    total_timesteps: int = 200_000
 
 @dataclass
 class H1HandSitArgs(HumanoidBenchV1Args):
-    total_timesteps: int = 100_000  # 100_000 * 1.5
+    total_timesteps: int = 100_000
 
 @dataclass
 class H1HandSitHardArgs(HumanoidBenchV1Args):
-    total_timesteps: int = 200_000  # 100_000 * 1.5
+    total_timesteps: int = 200_000
 
 @dataclass
 class H1HandWindowV1Args(HumanoidBenchV1Args):

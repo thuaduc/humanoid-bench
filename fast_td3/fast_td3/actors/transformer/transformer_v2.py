@@ -89,7 +89,7 @@ class TransformerV2(nn.Module):
         transformer_layer = nn.TransformerEncoderLayer(
             d_model=hidden_nf,
             nhead=num_heads,
-            dim_feedforward=hidden_nf * 2,
+            dim_feedforward=hidden_nf * 4,
             dropout=dropout,
             batch_first=True,
             activation="relu",
@@ -100,17 +100,19 @@ class TransformerV2(nn.Module):
         )
         
         # Cross-attention: joints query, object provides context
-        self.joint_to_object_cross_attn = nn.MultiheadAttention(
-            embed_dim=hidden_nf,
-            num_heads=num_heads,
-            dropout=dropout,
-            batch_first=True,
-        )
+        # Use manual implementation to avoid CUDA errors with torch.compile + single-token sequences
+        self.query_proj = nn.Linear(hidden_nf, hidden_nf)
+        self.key_proj = nn.Linear(hidden_nf, hidden_nf)
+        self.value_proj = nn.Linear(hidden_nf, hidden_nf)
+        self.out_proj = nn.Linear(hidden_nf, hidden_nf)
         self.cross_attn_norm = nn.LayerNorm(hidden_nf)
+        self.cross_attn_dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
         
         # Per-joint action head: hidden_nf -> hidden_nf -> 1
         self.action_head = nn.Sequential(
-            nn.Linear(hidden_nf, hidden_nf),
+            nn.Linear(hidden_nf, hidden_nf * 4),
+            act_fn,
+            nn.Linear(hidden_nf * 4, hidden_nf),
             act_fn,
             nn.Linear(hidden_nf, 1),
             nn.Tanh(),
@@ -145,11 +147,20 @@ class TransformerV2(nn.Module):
         joint_output = self.transformer(joint_embeddings)
         
         # Step 4: Cross-attention - joints query object for global context
-        joint_contextualized, _ = self.joint_to_object_cross_attn(
-            query=joint_output,
-            key=object_embeddings,
-            value=object_embeddings,
-        )
+        # Manual implementation to avoid CUDA errors with torch.compile on single-token sequences
+        Q = self.query_proj(joint_output)  # (B, num_joints, hidden_nf)
+        K = self.key_proj(object_embeddings)  # (B, 1, hidden_nf)
+        V = self.value_proj(object_embeddings)  # (B, 1, hidden_nf)
+        
+        # Compute attention: Q @ K^T / sqrt(d)
+        attn_scores = torch.matmul(Q, K.transpose(-2, -1)) / (self.hidden_nf ** 0.5)  # (B, num_joints, 1)
+        attn_weights = torch.softmax(attn_scores, dim=-1)  # (B, num_joints, 1)
+        attn_weights = self.cross_attn_dropout(attn_weights)
+        
+        # Apply attention to values
+        joint_contextualized = torch.matmul(attn_weights, V)  # (B, num_joints, hidden_nf)
+        joint_contextualized = self.out_proj(joint_contextualized)
+        
         joint_output = self.cross_attn_norm(joint_output + joint_contextualized)
         
         # Step 5: Generate actions from contextualized joint features

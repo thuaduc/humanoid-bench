@@ -1,7 +1,6 @@
 {
-    "hidden_dim": 72,
+    "hidden_dim": 96,
     "n_layers": 2,
-    "act_fn": "silu",
-    "num_heads": 4,
-    "dropout": 0.0
+    "act_fn": "relu",
+    "num_heads": 4
 }

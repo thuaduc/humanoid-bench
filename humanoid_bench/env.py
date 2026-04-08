@@ -70,6 +70,9 @@ from .envs.custom_env_h1hand import (
     Reach as ReachH1HandV1,
     Push as PushH1HandV1,
     Door as DoorH1HandV1,
+    Window as WindowH1HandV1,
+    Basketball as BasketballH1HandV1,
+    BalanceHard as BalanceHardH1HandV1,
 )
 from .envs.reach import Reach
 from .envs.pole import Pole
@@ -165,6 +168,9 @@ TASKS_CUSTOM_H1HAND = {
     "h1hand-reach-v1": ReachH1HandV1,
     "h1hand-push-v1": PushH1HandV1,
     "h1hand-door-v1": DoorH1HandV1,
+    "h1hand-window-v1": WindowH1HandV1,
+    "h1hand-balance_hard-v1": BalanceHardH1HandV1,
+    "h1hand-basketball-v1": BasketballH1HandV1,
 }
 
 # Merged tasks dictionary (used by HumanoidEnv) - includes both h1 and h1hand variants
