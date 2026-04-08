@@ -123,7 +123,9 @@ class TransformerV2(nn.Module):
 
         # Per-joint action head
         self.action_head = nn.Sequential(
-            nn.Linear(hidden_nf, hidden_nf),
+            nn.Linear(hidden_nf, hidden_nf * 4),
+            act_fn,
+            nn.Linear(hidden_nf * 4, hidden_nf),
             act_fn,
             nn.Linear(hidden_nf, 1),
             nn.Tanh(),
