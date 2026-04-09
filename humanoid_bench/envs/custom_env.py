@@ -412,9 +412,16 @@ ENV_CLASS_MAP = {
 
 
 def get_env_class(env_name: str):
-    if env_name not in ENV_CLASS_MAP:
-        raise ValueError(f"Unknown environment: {env_name}. Supported environments: {list(ENV_CLASS_MAP.keys())}")
-    return ENV_CLASS_MAP[env_name]
+    if env_name in ENV_CLASS_MAP:
+        return ENV_CLASS_MAP[env_name]
+    from humanoid_bench.envs.custom_env_h1hand import ENV_CLASS_MAP as H1HAND_ENV_CLASS_MAP
+
+    if env_name in H1HAND_ENV_CLASS_MAP:
+        return H1HAND_ENV_CLASS_MAP[env_name]
+    supported = list(ENV_CLASS_MAP.keys()) + list(H1HAND_ENV_CLASS_MAP.keys())
+    raise ValueError(
+        f"Unknown environment: {env_name}. Supported environments: {supported}"
+    )
 
 
 def unflatten_obs(flat_obs, env_name: str):
