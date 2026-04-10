@@ -10,7 +10,6 @@ if sys.platform != "darwin":
     os.environ["MUJOCO_GL"] = "egl"
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 os.environ["JAX_DEFAULT_MATMUL_PRECISION"] = "highest"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 os.environ["MKL_THREADING_LAYER"] = "GNU"
 import random
 import tqdm

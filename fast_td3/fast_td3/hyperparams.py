@@ -216,7 +216,7 @@ class HumanoidBenchArgs(BaseArgs):
 @dataclass
 class HumanoidBenchV1Args(HumanoidBenchArgs):
     # Hyperparameters optimized for v1 tasks (custom_env variants with alternative locomotion implementations)
-    max_grad_norm: float = 10
+    max_grad_norm: float = 0
     
 @dataclass
 class H1PushArgs(HumanoidBenchV1Args):
@@ -273,8 +273,8 @@ class H1HandBalanceHardArgs(HumanoidBenchArgs):
 @dataclass
 class H1HandPushV0Args(HumanoidBenchArgs):
     env_name: str = "h1hand-push-v0"
-    v_min: float = -1000.0
-    v_max: float = 1000.0
+    v_min: float = -2000.0
+    v_max: float = 2000.0
     total_timesteps: int = 1000000
 
 # H1Hand v1 tasks (150% of h1 tasks)
@@ -296,7 +296,7 @@ class H1HandDoorArgs(HumanoidBenchV1Args):
 
 @dataclass
 class H1HandBalanceSimpleArgs(HumanoidBenchV1Args):
-    total_timesteps: int = 300_001
+    total_timesteps: int = 250_001
 
 @dataclass
 class H1HandPushArgs(HumanoidBenchV1Args):
@@ -308,7 +308,7 @@ class H1HandPushArgs(HumanoidBenchV1Args):
 class H1HandReachArgs(HumanoidBenchV1Args):
     v_min: float = -2000.0
     v_max: float = 2000.0
-    total_timesteps: int = 300_001
+    total_timesteps: int = 250_001
 
 @dataclass
 class H1HandWalkArgs(HumanoidBenchV1Args):
@@ -336,7 +336,7 @@ class H1HandSitHardArgs(HumanoidBenchV1Args):
 
 @dataclass
 class H1HandWindowV1Args(HumanoidBenchV1Args):
-    total_timesteps: int = 300_001
+    total_timesteps: int = 150_001
 
 @dataclass
 class H1HandBalanceHardV1Args(HumanoidBenchV1Args):
@@ -390,8 +390,8 @@ class H1HandMazeArgs(HumanoidBenchArgs):
 @dataclass
 class H1HandPushV0Args(HumanoidBenchArgs):
     env_name: str = "h1hand-push-v0"
-    v_min: float = -1000.0
-    v_max: float = 1000.0
+    v_min: float = -2000.0
+    v_max: float = 2000.0
     total_timesteps: int = 1000000
 
 
