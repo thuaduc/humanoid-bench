@@ -1,5 +1,5 @@
 {
-    "hidden_dim": 104,
+    "hidden_dim": 64,
     "n_layers": 1,
     "act_fn": "relu",
     "num_heads": 1,

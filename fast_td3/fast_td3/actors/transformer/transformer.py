@@ -10,7 +10,8 @@ class Transformer(nn.Module):
       relative to pelvis, scaled like other custom envs)
 
     Forward: project both streams, concatenate as [joint_tokens, object_token], run
-    TransformerEncoder, then read the first num_joints outputs for actions.
+    TransformerEncoder, project joint outputs back to in_joint_nf, then one global MLP on
+    flattened joint features produces the full action vector.
     """
 
     def __init__(
@@ -25,6 +26,7 @@ class Transformer(nn.Module):
         n_layers,
         robot,
         env_name,
+        n_act,
         num_heads=4,
         dropout=0.1,
     ):
@@ -32,6 +34,7 @@ class Transformer(nn.Module):
         :param in_joint_nf: Features per joint node (pos, vel, anchor xyz) = 5
         :param in_object_nf: Flat prefix length for the single object/global token (env-specific)
         :param out_node_nf: Output dimension per node (unused in this architecture)
+        :param n_act: Action dimension (action head output size)
         :param hidden_nf: Hidden dimension for embeddings and transformer (64d)
         :param device: Device (e.g. 'cpu', 'cuda:0',...)
         :param batch_size: Batch size for vectorized environments
@@ -50,6 +53,7 @@ class Transformer(nn.Module):
         self.robot = robot
         self.in_joint_nf = in_joint_nf
         self.in_object_nf = in_object_nf
+        self.n_act = n_act
         self.num_heads = num_heads
         
         # Joint projection: 5d -> hidden_nf (64d)
@@ -85,13 +89,18 @@ class Transformer(nn.Module):
             num_layers=n_layers,
         )
         
-        # Per-joint action head: hidden_nf -> hidden_nf*4 -> hidden_nf -> 1
+        self.embedding_out = nn.Sequential(
+            nn.Linear(hidden_nf, in_joint_nf),
+            act_fn,
+        )
+        
+        action_in_dim = self.num_joints * in_joint_nf
         self.action_head = nn.Sequential(
-            nn.Linear(hidden_nf, hidden_nf * 4),
+            nn.Linear(action_in_dim, 256),
             act_fn,
-            nn.Linear(hidden_nf * 4, hidden_nf),
+            nn.Linear(256, 128),
             act_fn,
-            nn.Linear(hidden_nf, 1),
+            nn.Linear(128, n_act),
             nn.Tanh(),
         )
         
@@ -113,7 +122,7 @@ class Transformer(nn.Module):
         transformer_output = transformer_output + self.positional_embeddings.unsqueeze(0)
 
         joint_output = transformer_output[:, : self.num_joints, :]
-        actions = self.action_head(joint_output)
-        actions = actions.squeeze(-1)
+        joint_output = self.embedding_out(joint_output)
+        actions = self.action_head(joint_output.reshape(batch_size, -1))
         
         return actions

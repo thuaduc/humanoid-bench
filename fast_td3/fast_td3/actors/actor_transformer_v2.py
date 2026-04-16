@@ -24,6 +24,7 @@ class ActorTransformerV2(nn.Module):
         n_layers: int,
         act_fn: str,
         env_name: str,
+        n_act: int,
         robot: str = "h1",
         std_min: float = 0.05,
         std_max: float = 0.8,
@@ -43,6 +44,7 @@ class ActorTransformerV2(nn.Module):
                 raise ValueError(f"Unknown activation function: {act_fn}")
 
         in_object_nf = get_object_feature_dim(env_name)
+        self.n_act = n_act
 
         self.transformer = TransformerV2(
             hidden_nf=hidden_dim,
@@ -55,6 +57,7 @@ class ActorTransformerV2(nn.Module):
             n_layers=n_layers,
             robot=robot,
             env_name=env_name,
+            n_act=n_act,
             num_heads=num_heads,
             dropout=dropout,
         )

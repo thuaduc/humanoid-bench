@@ -1,9 +1,6 @@
 import torch
 import torch.nn as nn
 
-from fast_td3.robots.graph_builder import GraphBuilder
-
-
 class TransformerV2(nn.Module):
     """
     Transformer-based actor with hierarchical attention: joints-only encoder + cross-attention.
@@ -13,7 +10,7 @@ class TransformerV2(nn.Module):
     2. Add type embeddings (joint vs object tokens) + positional embeddings to joints only
     3. Apply n-layer self-attention transformer to joints only
     4. Cross-attention: joints query object node for global context
-    5. Per-joint action head
+    5. Global action head: flattened joint features -> full action vector (shared weights, no per-joint split MLP)
     
     Key improvement: Joints first attend to each other, then explicitly query the object
     node for global context through cross-attention. This creates a clearer hierarchy where
@@ -32,6 +29,7 @@ class TransformerV2(nn.Module):
         n_layers,
         robot,
         env_name,
+        n_act,
         num_heads=4,
         dropout=0.1,
     ):
@@ -39,13 +37,14 @@ class TransformerV2(nn.Module):
         :param in_joint_nf: Number of features for joint nodes (pos, vel, x, y, z) = 5
         :param in_object_nf: Number of features for object/global token (env-specific)
         :param out_node_nf: Output dimension per node (unused in this architecture)
+        :param n_act: Action dimension (action head output size)
         :param hidden_nf: Hidden dimension for embeddings and transformer
         :param device: Device (e.g. 'cpu', 'cuda:0',...)
         :param batch_size: Batch size for vectorized environments
         :param act_fn: Activation function
         :param n_layers: Number of transformer layers
         :param robot: Robot name for graph builder
-        :param env_name: Environment name
+        :param env_name: Environment name (selects joint count: 69 for h1hand, else 19)
         :param num_heads: Number of attention heads
         :param dropout: Dropout rate
         """
@@ -58,10 +57,9 @@ class TransformerV2(nn.Module):
         self.in_joint_nf = in_joint_nf
         self.in_object_nf = in_object_nf
         self.object_feature_dim = in_object_nf
+        self.n_act = n_act
         self.num_heads = num_heads
-        
-        self.graph_builder = GraphBuilder(env_name, batch_size, device, robot)
-        self.num_joints = self.graph_builder.robot.num_joints
+        self.num_joints = 69 if "h1hand" in env_name else 19
         
         # Joint projection: 5d -> hidden_nf
         self.joint_projection = nn.Sequential(
@@ -80,11 +78,6 @@ class TransformerV2(nn.Module):
             torch.randn(self.num_joints, hidden_nf) * 0.02
         )
         
-        # Type embedding to mark joint tokens
-        self.joint_type_embedding = nn.Parameter(
-            torch.randn(1, 1, hidden_nf) * 0.02
-        )
-        
         # Transformer encoder for joints only
         transformer_layer = nn.TransformerEncoderLayer(
             d_model=hidden_nf,
@@ -101,20 +94,28 @@ class TransformerV2(nn.Module):
         
         # Cross-attention: joints query, object provides context
         # Use manual implementation to avoid CUDA errors with torch.compile + single-token sequences
-        self.query_proj = nn.Linear(hidden_nf, hidden_nf)
-        self.key_proj = nn.Linear(hidden_nf, hidden_nf)
-        self.value_proj = nn.Linear(hidden_nf, hidden_nf)
-        self.out_proj = nn.Linear(hidden_nf, hidden_nf)
-        self.cross_attn_norm = nn.LayerNorm(hidden_nf)
-        self.cross_attn_dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
+        # self.query_proj = nn.Linear(hidden_nf, hidden_nf)
+        # self.key_proj = nn.Linear(hidden_nf, hidden_nf)
+        # self.value_proj = nn.Linear(hidden_nf, hidden_nf)
+        # self.out_proj = nn.Linear(hidden_nf, hidden_nf)
+        # self.cross_attn_norm = nn.LayerNorm(hidden_nf)
+        # self.cross_attn_dropout = nn.Dropout(dropout) if dropout > 0 else nn.Identity()
         
-        # Per-joint action head: hidden_nf -> hidden_nf -> 1
+        # Project contextualized features back to per-joint feature size before action head
+        self.embedding_out = nn.Sequential(
+            nn.Linear(hidden_nf, in_joint_nf),
+            act_fn,
+        )
+        
+        # Single MLP on all joint features at once (same parameters for the full body)
+        action_in_dim = self.num_joints * in_joint_nf + in_object_nf
+        
         self.action_head = nn.Sequential(
-            nn.Linear(hidden_nf, hidden_nf * 4),
+            nn.Linear(action_in_dim, 512),
             act_fn,
-            nn.Linear(hidden_nf * 4, hidden_nf),
+            nn.Linear(512, 128),
             act_fn,
-            nn.Linear(hidden_nf, 1),
+            nn.Linear(128, n_act),
             nn.Tanh(),
         )
         
@@ -122,49 +123,36 @@ class TransformerV2(nn.Module):
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         """
-        Process observations through joints-only transformer + cross-attention.
+        Process observations through joints-only transformer.
         
         Architecture:
-        1. Project features
-        2. Add type and positional embeddings to joints only
-        3. Apply self-attention transformer to joints only (no object in self-attention)
-        4. Cross-attention: joints query object for global context
-        5. Generate actions from contextualized joint features
+        1. Project joint features to hidden dimension
+        2. Add positional embeddings to joints
+        3. Apply self-attention transformer to joints only
+        4. Project back to joint feature size
+        5. Concatenate with object features and pass through action head
         """
         batch_size = obs.shape[0]
-        h_objects = obs[:, :self.object_feature_dim].unsqueeze(1)
+        
+        # Split observation: [object_features, joint_features_flat]
+        h_objects = obs[:, :self.object_feature_dim]
         h_joints = obs[:, self.object_feature_dim:].view(batch_size, self.num_joints, self.in_joint_nf)
 
-        # Step 1: Project features to hidden dimension
+        # Project joint features and add positional embeddings
         joint_embeddings = self.joint_projection(h_joints)
-        object_embeddings = self.object_projection(h_objects)
+        joint_embeddings = joint_embeddings + self.positional_embeddings
         
-        # Step 2: Add type and positional embeddings to joints only
-        joint_embeddings = joint_embeddings + self.joint_type_embedding
-        joint_embeddings = joint_embeddings + self.positional_embeddings.unsqueeze(0)
-        
-        # Step 3: Apply self-attention transformer to joints only
+        # Apply transformer encoder
         joint_output = self.transformer(joint_embeddings)
         
-        # Step 4: Cross-attention - joints query object for global context
-        # Manual implementation to avoid CUDA errors with torch.compile on single-token sequences
-        Q = self.query_proj(joint_output)  # (B, num_joints, hidden_nf)
-        K = self.key_proj(object_embeddings)  # (B, 1, hidden_nf)
-        V = self.value_proj(object_embeddings)  # (B, 1, hidden_nf)
+        # Project back to joint feature size and flatten
+        joint_output = self.embedding_out(joint_output)
+        joint_flat = joint_output.view(batch_size, -1)
         
-        # Compute attention: Q @ K^T / sqrt(d)
-        attn_scores = torch.matmul(Q, K.transpose(-2, -1)) / (self.hidden_nf ** 0.5)  # (B, num_joints, 1)
-        attn_weights = torch.softmax(attn_scores, dim=-1)  # (B, num_joints, 1)
-        attn_weights = self.cross_attn_dropout(attn_weights)
+        # Concatenate joint and object features
+        combined_features = torch.cat([joint_flat, h_objects], dim=-1)
         
-        # Apply attention to values
-        joint_contextualized = torch.matmul(attn_weights, V)  # (B, num_joints, hidden_nf)
-        joint_contextualized = self.out_proj(joint_contextualized)
-        
-        joint_output = self.cross_attn_norm(joint_output + joint_contextualized)
-        
-        # Step 5: Generate actions from contextualized joint features
-        actions = self.action_head(joint_output)
-        actions = actions.squeeze(-1)
+        # Generate actions
+        actions = self.action_head(combined_features)
         
         return actions
